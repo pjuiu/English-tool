@@ -639,20 +639,7 @@
     <div id="video-caption"></div>
   </div>
 
-  <!-- Waveform -->
-  <div id="waveform-wrap">
-    <div id="waveform"></div>
-    <div id="current-subtitle">
-      <div class="en" id="sub-en"></div>
-      <div class="zh" id="sub-zh"></div>
-    </div>
-    <div id="zoom-row">
-      <span class="ctrl-label">波形缩放</span>
-      <input type="range" id="zoom-slider" min="0" max="400" value="0" oninput="applyZoom(this.value)" />
-    </div>
-  </div>
-
-  <!-- Practice Mode -->
+  <!-- Practice Mode（主练习区，位于视频下方） -->
   <div id="practice-panel" style="display:none;">
     <div id="practice-head">
       <span id="practice-title">🎤 逐句跟读</span>
@@ -674,6 +661,20 @@
     <div id="pr-waves">
       <div class="wave-label">原声</div><canvas id="pr-wave-orig" width="600" height="44"></canvas>
       <div class="wave-label">你的录音</div><canvas id="pr-wave-mine" width="600" height="44"></canvas>
+    </div>
+  </div>
+
+  <!-- Waveform -->
+  <div id="waveform-wrap">
+    <div id="waveform"></div>
+    <div id="current-subtitle">
+      <div class="en" id="sub-en"></div>
+      <div class="zh" id="sub-zh"></div>
+    </div>
+    <div id="zoom-row">
+      <span class="ctrl-label">波形缩放</span>
+      <input type="range" id="zoom-slider" min="0" max="400" value="0" oninput="applyZoom(this.value)" />
+      <button class="btn" id="gen-wave-btn" style="display:none;" onclick="waveformFallback()" title="大文件默认不解码（秒开）；点此提取音频生成真实波形">🌊 生成真实波形</button>
     </div>
   </div>
 
@@ -702,8 +703,16 @@
       <button class="btn" onclick="prevSentence()">⏮ 上一句</button>
       <button class="btn" onclick="replayCurrentSentence()">🔂 重播本句</button>
       <button class="btn" onclick="nextSentence()">⏭ 下一句</button>
-      <button class="btn" id="sent-pause-btn" onclick="toggleSentencePause()">逐句暂停</button>
-      <select class="mini-select" id="pause-resume-sel" title="逐句暂停后：手动按空格继续，或留出跟读时间后自动继续">
+      <button class="btn" style="background:var(--accent);color:#fff;border-color:var(--accent);" onclick="enterPracticeHere()" title="进入逐句跟读练习（听→录→评分→下一句）">🎤 逐句跟读</button>
+    </div>
+    <div class="ctrl-group">
+      <span class="ctrl-label">播放模式</span>
+      <select class="mini-select" id="play-mode-sel" onchange="setPlayMode(this.value)" title="连续播放｜每句播完停一下（留时间跟读）｜同一句无限循环">
+        <option value="continuous">▶ 连续播放</option>
+        <option value="pause">⏸ 每句停一下</option>
+        <option value="loop">🔁 单句循环</option>
+      </select>
+      <select class="mini-select" id="pause-resume-sel" style="display:none;" title="逐句暂停后：手动按空格继续，或留出跟读时间后自动继续">
         <option value="manual">暂停后手动继续</option>
         <option value="auto">停 1.5×句长后自动继续</option>
       </select>
@@ -828,6 +837,50 @@ let autoTimer = null;
 let loopsDone = 0;           // 当前区间已循环次数
 let blindMode = false;       // 盲听模式
 let pauseResumeTimer = null; // 逐句暂停自动继续计时器
+let loopSentenceMode = false;// 单句循环模式
+let loopSegRange = null;     // 单句循环的当前句 [start, end]
+let audio16k = null;         // 提取的 16k 单声道音频（波形/转写/切分共享，只提取一次）
+let audio16kKey = '';
+let waveformFallbackTried = false;
+// 占位波形：淡淡的规律纹理，提示"波形未生成"
+const PLACEHOLDER_PEAKS = Array.from({ length: 512 }, (_, i) => 0.12 + 0.08 * Math.abs(Math.sin(i / 5)));
+
+async function get16kAudio() {
+  const key = fileKey();
+  if (audio16k && audio16kKey === key) return audio16k;
+  audio16k = await fileTo16kMono(currentFile);
+  audio16kKey = key;
+  // 音频既然提取好了，顺手把真实波形也画出来（几乎零成本）
+  if (!waveformFallbackTried && document.getElementById('gen-wave-btn').style.display !== 'none') {
+    setTimeout(waveformFallback, 100);
+  }
+  return audio16k;
+}
+
+/* 波形备用渲染：解码失败/超时 → 提取音频算峰值，重建波形（不再依赖浏览器解码原文件） */
+async function waveformFallback() {
+  if (waveformFallbackTried || !currentFile) return;
+  waveformFallbackTried = true;
+  try {
+    showToast('⏳ 正在用备用方式生成波形…');
+    const audio = await get16kAudio();
+    const N = 4000;
+    const peaks = new Float32Array(N);
+    const step = Math.max(1, Math.floor(audio.length / N));
+    for (let i = 0; i < N; i++) {
+      let m = 0;
+      for (let j = i * step, e = Math.min((i + 1) * step, audio.length); j < e; j++) {
+        const v = Math.abs(audio[j]);
+        if (v > m) m = v;
+      }
+      peaks[i] = m;
+    }
+    initWaveSurfer(currentFile, { peaks: Array.from(peaks), duration: audio.length / 16000 });
+    showToast('✓ 波形已生成');
+  } catch (e) {
+    showToast('波形无法生成（不影响播放、跟读、剪切等功能）', 4000);
+  }
+}
 
 function fileKey() { return currentFileName + '_' + (currentFile ? currentFile.size : ''); }
 
@@ -943,6 +996,10 @@ function loadFile(file) {
   }
   if (autoShadowOn) stopAutoShadow();
   if (practice) exitPractice();
+  waveformFallbackTried = false;
+  audio16k = null;
+  audio16kKey = '';
+  loopSegRange = null;
   recordings.forEach(r => URL.revokeObjectURL(r.url));
   recordings = [];
   renderRecordings();
@@ -978,15 +1035,16 @@ function isVideoFile(file) {
   return (file.type && file.type.startsWith('video/')) || /\.(mp4|mov|mkv|webm|m4v|avi)$/i.test(file.name);
 }
 
-function initWaveSurfer(file) {
+function initWaveSurfer(file, pre) {
   if (ws) { ws.destroy(); ws = null; }
+  duration = 0;   // 新实例时长归零，等真实来源填充
 
   // 视频文件 → 显示画面，用 <video> 作为播放媒体（波形与画面自动同步）
   const isVideo = isVideoFile(file);
   const videoWrap = document.getElementById('video-wrap');
   const videoEl = document.getElementById('video-el');
   videoWrap.style.display = isVideo ? 'block' : 'none';
-  videoEl.removeAttribute('src');
+  if (!pre) videoEl.removeAttribute('src');
 
   wsRegions = WaveSurfer.Regions.create();
 
@@ -1001,10 +1059,40 @@ function initWaveSurfer(file) {
     plugins: [wsRegions],
   };
   if (isVideo) opts.media = videoEl;
+  // 大文件/视频：完全跳过解码，秒开即可播放/跳转；波形用占位图，可按需生成
+  const heavy = !pre && (isVideo || file.size > 25 * 1024 * 1024);
+  if (pre) {
+    // 备用路径：用预计算峰值渲染，完全绕开浏览器对原文件的解码
+    opts.url = URL.createObjectURL(file);
+    opts.peaks = [pre.peaks];
+    opts.duration = pre.duration;
+  } else if (heavy) {
+    opts.url = URL.createObjectURL(file);
+    opts.peaks = [PLACEHOLDER_PEAKS];
+    opts.duration = 600;   // 占位；元数据到达后用真实时长瞬间重建
+  }
 
   ws = WaveSurfer.create(opts);
 
-  ws.loadBlob(file);
+  let decoded = !!pre;
+  if (!pre && !heavy) {
+    ws.loadBlob(file);
+    // 解码失败或超时 → 自动切换备用波形
+    setTimeout(() => { if (!decoded) waveformFallback(); }, 30000);
+  }
+  if (heavy) {
+    const m0 = ws.getMediaElement && ws.getMediaElement();
+    if (m0) m0.addEventListener('loadedmetadata', () => {
+      if (isFinite(m0.duration) && m0.duration > 0) {
+        const keep = m0.currentTime;
+        initWaveSurfer(file, { peaks: PLACEHOLDER_PEAKS, duration: m0.duration, placeholder: true });
+        if (keep > 0.5) seekSec(keep);
+      }
+    }, { once: true });
+  }
+  // 占位波形时显示「生成真实波形」按钮
+  document.getElementById('gen-wave-btn').style.display =
+    (heavy || (pre && pre.placeholder)) ? '' : 'none';
 
   // 时长多路兜底：大文件/视频的波形解码可能极慢或失败，
   // 但媒体元数据几秒内就有时长——拿到任一来源即解锁进度条/剪切/跳转
@@ -1015,20 +1103,24 @@ function initWaveSurfer(file) {
     updateTimeDisplay(ws.getCurrentTime());
     if (!regionsEnabled) { regionsEnabled = true; enableRegionDrag(); }
   };
-  ws.on('ready', () => onDurationKnown(ws.getDuration()));
-  ws.on('decode', (d) => onDurationKnown(d));
+  // heavy 模式下 ready/decode 报告的是占位时长(600)，不能采信，只等媒体元数据
+  ws.on('ready', () => { decoded = true; if (!heavy) onDurationKnown(ws.getDuration()); });
+  ws.on('decode', (d) => { decoded = true; if (!heavy) onDurationKnown(d); });
   const mediaEl = ws.getMediaElement && ws.getMediaElement();
   if (mediaEl) {
     if (mediaEl.duration && isFinite(mediaEl.duration)) onDurationKnown(mediaEl.duration);
     mediaEl.addEventListener('loadedmetadata', () => onDurationKnown(mediaEl.duration));
     mediaEl.addEventListener('durationchange', () => onDurationKnown(mediaEl.duration));
   }
-  ws.on('error', () => {
-    showToast('波形渲染失败（文件较大或编码特殊），不影响播放、转写、剪切和跟读', 4000);
-  });
+  if (pre) onDurationKnown(pre.duration);
+  ws.on('error', () => { if (!decoded) waveformFallback(); });
 
   ws.on('timeupdate', (t) => {
-    if (!duration) onDurationKnown(ws.getDuration());   // 最后一层兜底
+    if (!duration) {   // 最后一层兜底：只信媒体元素的真实时长
+      const m = ws.getMediaElement && ws.getMediaElement();
+      if (m && isFinite(m.duration) && m.duration > 0) onDurationKnown(m.duration);
+      else if (!heavy) onDurationKnown(ws.getDuration());
+    }
     updateTimeDisplay(t);
     updateProgressBar(t);
     updateCurrentSubtitle(t);
@@ -1051,7 +1143,16 @@ function initWaveSurfer(file) {
           loopsDone = 0;
           showToast(`已循环 ${limit} 次，自动停止`);
         }
-        ws.seekTo(currentRegion.start / duration);
+        seekSec(currentRegion.start);
+      }
+      return;
+    }
+    if (loopSentenceMode && subtitles.length > 0 && ws.isPlaying()) {
+      if (loopSegRange && t >= loopSegRange[1] - 0.05) {
+        seekSec(loopSegRange[0]);
+      } else {
+        const seg = subtitles.find(s => t >= s.start && t < s.end - 0.08);
+        if (seg) loopSegRange = [seg.start, seg.end];
       }
       return;
     }
@@ -1078,7 +1179,7 @@ function initWaveSurfer(file) {
   ws.on('finish', () => {
     document.getElementById('play-btn').textContent = '▶ 播放';
     if (isLooping && currentRegion) {
-      ws.seekTo(currentRegion.start / duration);
+      seekSec(currentRegion.start);
       ws.play();
     }
   });
@@ -1129,17 +1230,43 @@ function togglePlay() {
   ws.playPause();
 }
 
+/* 绝对时间跳转：直接操作媒体元素，不依赖波形解码——
+   解码没完成/失败时也能随意快进快退、点句跳转 */
+let pendingSeek = null;
+function seekSec(t) {
+  if (!ws) return;
+  const m = ws.getMediaElement && ws.getMediaElement();
+  if (m && isFinite(m.duration) && m.duration > 0) {
+    m.currentTime = Math.min(Math.max(t, 0), m.duration - 0.01);
+  } else if (m) {
+    pendingSeek = t;   // 元数据还没就绪：记下目标，就绪后立即跳
+    m.addEventListener('loadedmetadata', () => {
+      if (pendingSeek != null && isFinite(m.duration)) {
+        m.currentTime = Math.min(Math.max(pendingSeek, 0), m.duration - 0.01);
+        pendingSeek = null;
+      }
+    }, { once: true });
+  } else if (typeof ws.setTime === 'function') {
+    ws.setTime(t);
+  }
+}
+function seekRatio(r) {
+  if (!ws) return;
+  const m = ws.getMediaElement && ws.getMediaElement();
+  if (m && isFinite(m.duration) && m.duration > 0) m.currentTime = r * m.duration;
+  else if (duration > 0) seekSec(r * duration);
+}
+
 function seekDelta(delta) {
   if (!ws) return;
-  const t = Math.min(Math.max(ws.getCurrentTime() + delta, 0), duration);
-  ws.seekTo(t / duration);
+  seekSec(ws.getCurrentTime() + delta);
 }
 
 function seekByClick(e) {
   if (!ws || !duration) return;
   const rect = e.currentTarget.getBoundingClientRect();
   const ratio = (e.clientX - rect.left) / rect.width;
-  ws.seekTo(Math.min(Math.max(ratio, 0), 1));
+  seekRatio(ratio);
 }
 
 /* 进度条支持按住拖动 */
@@ -1150,7 +1277,7 @@ function seekByClick(e) {
     if (!ws || !duration) return;
     const rect = bar.getBoundingClientRect();
     const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
-    ws.seekTo(ratio);
+    seekRatio(ratio);
     document.getElementById('progress-fill').style.width = (ratio * 100) + '%';
   };
   bar.addEventListener('pointerdown', e => { dragging = true; bar.setPointerCapture(e.pointerId); seekAt(e.clientX); });
@@ -1182,7 +1309,7 @@ function toggleLoop() {
   loopsDone = 0;
   document.getElementById('loop-btn').classList.toggle('active', isLooping);
   if (isLooping && currentRegion && ws) {
-    ws.seekTo(currentRegion.start / duration);
+    seekSec(currentRegion.start);
     ws.play();
   }
 }
@@ -1362,7 +1489,7 @@ async function doLocalTranscribe() {
       }
     });
     setTranscribeStatus('⏳ 正在解码音频…');
-    const audio = await fileTo16kMono(currentFile);
+    const audio = await get16kAudio();
     const durMin = Math.round(audio.length / 16000 / 60 * 10) / 10;
     if (durMin > 20 && !confirm(`音频长 ${durMin} 分钟，本地转写预计需要 ${Math.round(durMin)}–${Math.round(durMin*2)} 分钟。\n长材料建议先「静音切分」或用 API 转写。仍要本地转写吗？`)) {
       setTranscribeStatus('已取消');
@@ -1601,7 +1728,7 @@ function renderSubtitleList() {
     `;
     div.addEventListener('click', (e) => {
       if (e.target.tagName === 'BUTTON') return;
-      if (ws && duration) ws.seekTo(s.start / duration);
+      playSentence(i);   // 点句即播（配合播放模式：连续 / 句末停 / 单句循环）
     });
     list.appendChild(div);
   });
@@ -1637,7 +1764,7 @@ function selectSubtitle(i, e) {
     drag: true,
     resize: true,
   });
-  ws.seekTo(s.start / duration);
+  seekSec(s.start);
   updateRegionInfo();
   showToast('已选定该句为循环片段');
 }
@@ -1754,7 +1881,7 @@ function jumpToSegment(start, end) {
     color: 'rgba(138,158,138,0.25)',
     drag: true, resize: true,
   });
-  ws.seekTo(start / duration);
+  seekSec(start);
   updateRegionInfo();
   if (!ws.isPlaying()) ws.play();
 }
@@ -1819,7 +1946,8 @@ function playSentence(idx) {
   if (!s || !ws || !duration) return;
   abState = null;
   pauseSegEnd = sentencePause ? s.end : null;
-  ws.seekTo(s.start / duration);
+  loopSegRange = loopSentenceMode ? [s.start, s.end] : null;
+  seekSec(s.start);
   if (!ws.isPlaying()) ws.play();
 }
 
@@ -1845,11 +1973,20 @@ function replayCurrentSentence() {
   if (idx >= 0) playSentence(idx);
 }
 
-function toggleSentencePause() {
-  sentencePause = !sentencePause;
+function setPlayMode(mode) {
+  sentencePause = mode === 'pause';
+  loopSentenceMode = mode === 'loop';
   pauseSegEnd = null;
-  document.getElementById('sent-pause-btn').classList.toggle('active', sentencePause);
-  showToast(sentencePause ? '逐句暂停已开启：每句播完自动停，按空格继续' : '逐句暂停已关闭');
+  loopSegRange = null;
+  clearTimeout(pauseResumeTimer);
+  document.getElementById('pause-resume-sel').style.display = sentencePause ? '' : 'none';
+  if (mode === 'pause') showToast('每句播完自动停，按空格继续（可设自动继续）');
+  if (mode === 'loop') showToast('单句循环：当前句无限重复，点其他句或切换模式退出');
+}
+
+function enterPracticeHere() {
+  if (!ws || subtitles.length === 0) { showToast('需要先有字幕（转写或导入）'); return; }
+  startPractice(Math.max(subIndexAt(ws.getCurrentTime()), 0));
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1918,7 +2055,7 @@ function autoStep() {
   const s = subtitles[autoIdx];
   setAutoStatus(`▶ 第 ${autoIdx + 1}/${subtitles.length} 句：听原声…`);
   abState = { end: s.end, cb: () => { if (autoShadowOn) autoRecordSentence(s); } };
-  ws.seekTo(s.start / duration);
+  seekSec(s.start);
   if (!ws.isPlaying()) ws.play();
 }
 
@@ -2047,7 +2184,7 @@ function practicePlay() {
   if (!practice || !ws) return;
   stopAllPlayback();
   abState = { end: practice.end, cb: () => setPracticeStatus('原句播完 → 按 R 开始跟读录音') };
-  ws.seekTo(practice.start / duration);
+  seekSec(practice.start);
   ws.play();
   setPracticeStatus('▶ 播放原句中…');
 }
@@ -2113,7 +2250,7 @@ function practiceCompare() {
   stopAllPlayback();
   setPracticeStatus('🔁 对比：先原声，后你的录音…');
   abState = { end: practice.end, cb: () => { recAudio.src = practice.recUrl; recAudio.currentTime = 0; recAudio.play(); } };
-  ws.seekTo(practice.start / duration);
+  seekSec(practice.start);
   ws.play();
   markPlayingBtn(btn);
 }
@@ -2293,7 +2430,7 @@ async function doSilenceSplit() {
   if (cutSegments.length > 0 && !confirm(`已有 ${cutSegments.length} 个片段，静音切分会替换现有列表，继续？`)) return;
   showToast('⏳ 正在分析静音间隙…');
   try {
-    const audio = await fileTo16kMono(currentFile);
+    const audio = await get16kAudio();
     const FRAME = 800;                     // 50ms @16k
     const nFrames = Math.floor(audio.length / FRAME);
     const rms = new Float32Array(nFrames);
@@ -2505,7 +2642,7 @@ function playOriginalOfRec(i, e) {
   if (!reg || !ws || !duration) { showToast('该录音没有关联区间，请先拖选一段'); return; }
   stopAllPlayback();
   abState = { end: reg.end, cb: null };
-  ws.seekTo(reg.start / duration);
+  seekSec(reg.start);
   ws.play();
   markPlayingBtn(e ? e.target : null);
 }
@@ -2518,7 +2655,7 @@ function compareRecording(i, e) {
   if (!reg || !ws || !duration) { playRecording(i, e); return; }
   showToast('对比播放：先原声，后你的录音');
   abState = { end: reg.end, cb: () => { recAudio.src = rec.url; recAudio.currentTime = 0; recAudio.play(); } };
-  ws.seekTo(reg.start / duration);
+  seekSec(reg.start);
   ws.play();
   markPlayingBtn(e ? e.target : null);
 }
@@ -2632,7 +2769,7 @@ function playCut(i) {
   stopAllPlayback();
   if (activeCutLoop !== -1) { activeCutLoop = -1; isLooping = false; document.getElementById('loop-btn').classList.remove('active'); renderCutList(); }
   abState = { end: c.end, cb: null };   // 播到片段末尾自动停
-  ws.seekTo(c.start / duration);
+  seekSec(c.start);
   ws.play();
 }
 
@@ -2660,7 +2797,7 @@ function loopCut(i) {
   c.lastPracticed = Date.now();
   saveCuts();
   renderCutList();
-  ws.seekTo(c.start / duration);
+  seekSec(c.start);
   ws.play();
 }
 
@@ -2836,9 +2973,12 @@ function resetAll() {
   currentRegion = null;
   isLooping = false;
   sentencePause = false;
+  loopSentenceMode = false;
+  loopSegRange = null;
   pauseSegEnd = null;
   lastActiveSub = null;
-  document.getElementById('sent-pause-btn').classList.remove('active');
+  document.getElementById('play-mode-sel').value = 'continuous';
+  document.getElementById('pause-resume-sel').style.display = 'none';
   cutSegments = [];
   activeCutLoop = -1;
   cutMarkA = cutMarkB = null;
