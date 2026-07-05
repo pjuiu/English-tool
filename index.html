@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我的英语学习工具</title>
+<style>
+  :root { --bg:#f0ede8; --card:#fff; --text:#4a4540; --muted:#8a837a; --accent:#8a9e8a; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif;
+    background:var(--bg); color:var(--text); min-height:100vh;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:24px; gap:20px;
+  }
+  h1 { font-size:22px; font-weight:700; }
+  p.sub { color:var(--muted); font-size:13px; margin-top:-10px; }
+  .tools { display:flex; gap:16px; flex-wrap:wrap; justify-content:center; width:100%; max-width:720px; }
+  a.tool {
+    flex:1; min-width:260px; max-width:340px;
+    background:var(--card); border-radius:16px; padding:28px 24px;
+    text-decoration:none; color:var(--text);
+    box-shadow:0 4px 16px rgba(74,69,64,0.10);
+    transition:transform .15s, box-shadow .15s;
+    display:block;
+  }
+  a.tool:active, a.tool:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(74,69,64,0.15); }
+  .tool .icon { font-size:36px; margin-bottom:10px; }
+  .tool .name { font-size:17px; font-weight:700; margin-bottom:6px; }
+  .tool .desc { font-size:12.5px; color:var(--muted); line-height:1.6; }
+  .note { font-size:11.5px; color:var(--muted); text-align:center; max-width:480px; line-height:1.7; }
+</style>
+</head>
+<body>
+  <h1>📚 我的英语学习工具</h1>
+  <p class="sub">数据只保存在本设备浏览器里，不上传任何服务器</p>
+  <div class="tools">
+    <a class="tool" href="影子跟读实验室.html">
+      <div class="icon">🎙</div>
+      <div class="name">影子跟读实验室</div>
+      <div class="desc">上传视频/音频 → 免费转写字幕 → 逐句跟读、录音对比、发音评分、选段循环</div>
+    </a>
+    <a class="tool" href="english-word-lab.html">
+      <div class="icon">📘</div>
+      <div class="name">English Word Lab</div>
+      <div class="desc">文章分级标注 → 点词看音标和英英释义 → 词汇看板 → 间隔复习、听写拼写</div>
+    </a>
+  </div>
+  <p class="note">提示：换设备时用各工具右上角「💾 备份 / 📥 恢复」迁移数据。跟读录音需要浏览器授权麦克风。</p>
+</body>
+</html>
