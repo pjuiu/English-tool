@@ -626,6 +626,10 @@
         <option value="base">base 模型（80MB·更准）</option>
       </select>
       <button class="btn" onclick="doSilenceSplit()" title="不转写也能练：按静音间隙自动把音频切成小段，加入选段剪切列表">🔇 静音切分</button>
+      <select class="mini-select" id="vad-mode-sel" title="影视剧/综艺有背景音乐和音效，需要更高的人声判定阈值">
+        <option value="tv">影视剧/带背景音</option>
+        <option value="clean">播客/干净人声</option>
+      </select>
       <button class="btn" onclick="loadSubtitleFile()">导入 SRT / VTT / JSON 字幕</button>
       <button class="btn" onclick="exportSRT()">⬇ 导出 SRT</button>
       <input type="file" id="sub-file-input" accept=".srt,.vtt,.json" style="display:none" onchange="onSubFileLoad(event)" />
@@ -991,6 +995,8 @@ function loadFile(file) {
   }
   if (subtitles.length > 0) {
     setTranscribeStatus(`✓ 已恢复该文件上次的字幕（${subtitles.length} 句），无需重新转写`);
+  } else if (isVideoFile(file)) {
+    setTranscribeStatus('提示：画面里烧录的字幕无法直接读取。点「🆓 本地转写」生成可点句跳转的字幕（或导入 SRT）；不想转写就用「🔇 静音切分」按停顿切段逐段跟读。');
   } else {
     setTranscribeStatus('');
   }
@@ -1044,6 +1050,7 @@ function initWaveSurfer(file, pre) {
   const videoWrap = document.getElementById('video-wrap');
   const videoEl = document.getElementById('video-el');
   videoWrap.style.display = isVideo ? 'block' : 'none';
+  videoEl.controls = isVideo;   // 原生进度条：可直接在视频上拖拉快进
   if (!pre) videoEl.removeAttribute('src');
 
   wsRegions = WaveSurfer.Regions.create();
@@ -1070,7 +1077,9 @@ function initWaveSurfer(file, pre) {
     opts.url = URL.createObjectURL(file);
     opts.peaks = [PLACEHOLDER_PEAKS];
     opts.duration = 600;   // 占位；元数据到达后用真实时长瞬间重建
+    opts.normalize = false;   // 占位纹理保持低矮，不放大成"满格波形"
   }
+  if (pre && pre.placeholder) opts.normalize = false;
 
   ws = WaveSurfer.create(opts);
 
@@ -1082,13 +1091,24 @@ function initWaveSurfer(file, pre) {
   }
   if (heavy) {
     const m0 = ws.getMediaElement && ws.getMediaElement();
-    if (m0) m0.addEventListener('loadedmetadata', () => {
-      if (isFinite(m0.duration) && m0.duration > 0) {
-        const keep = m0.currentTime;
-        initWaveSurfer(file, { peaks: PLACEHOLDER_PEAKS, duration: m0.duration, placeholder: true });
-        if (keep > 0.5) seekSec(keep);
+    const rebuildWithRealDuration = () => {
+      if (!m0 || !isFinite(m0.duration) || m0.duration <= 0) return false;
+      const keep = m0.currentTime;
+      initWaveSurfer(file, { peaks: PLACEHOLDER_PEAKS, duration: m0.duration, placeholder: true });
+      if (keep > 0.5) seekSec(keep);
+      return true;
+    };
+    if (m0) {
+      // 竞态修复：元数据可能在监听器挂上之前就绪 → 先查一次，再监听，再兜底轮询
+      if (!rebuildWithRealDuration()) {
+        m0.addEventListener('loadedmetadata', rebuildWithRealDuration, { once: true });
+        let tries = 0;
+        const timer = setInterval(() => {
+          if (m0.duration === Infinity) fixInfiniteDuration(m0);   // 分片 MP4：先逼出真实时长
+          if (rebuildWithRealDuration() || ++tries > 30) clearInterval(timer);
+        }, 500);
       }
-    }, { once: true });
+    }
   }
   // 占位波形时显示「生成真实波形」按钮
   document.getElementById('gen-wave-btn').style.display =
@@ -1109,8 +1129,14 @@ function initWaveSurfer(file, pre) {
   const mediaEl = ws.getMediaElement && ws.getMediaElement();
   if (mediaEl) {
     if (mediaEl.duration && isFinite(mediaEl.duration)) onDurationKnown(mediaEl.duration);
-    mediaEl.addEventListener('loadedmetadata', () => onDurationKnown(mediaEl.duration));
-    mediaEl.addEventListener('durationchange', () => onDurationKnown(mediaEl.duration));
+    if (mediaEl.duration === Infinity) fixInfiniteDuration(mediaEl);
+    mediaEl.addEventListener('loadedmetadata', () => {
+      if (mediaEl.duration === Infinity) fixInfiniteDuration(mediaEl);
+      else onDurationKnown(mediaEl.duration);
+    });
+    mediaEl.addEventListener('durationchange', () => {
+      if (isFinite(mediaEl.duration)) onDurationKnown(mediaEl.duration);
+    });
   }
   if (pre) onDurationKnown(pre.duration);
   ws.on('error', () => { if (!decoded) waveformFallback(); });
@@ -1233,6 +1259,24 @@ function togglePlay() {
 /* 绝对时间跳转：直接操作媒体元素，不依赖波形解码——
    解码没完成/失败时也能随意快进快退、点句跳转 */
 let pendingSeek = null;
+
+/* 分片式 MP4（B站等下载的视频常见）会把时长报成 Infinity，
+   所有跳转都会失效。标准修法：先 seek 到超大时间逼浏览器算出真实时长 */
+function fixInfiniteDuration(m) {
+  if (!m || m.duration !== Infinity || m.__fixingDur) return;
+  m.__fixingDur = true;
+  const onDur = () => {
+    if (isFinite(m.duration) && m.duration > 0) {
+      m.removeEventListener('durationchange', onDur);
+      if (pendingSeek == null) { try { m.currentTime = 0; } catch (e) {} }
+      m.__fixingDur = false;
+      duration = 0;               // 让时长兜底重新采信真实值
+    }
+  };
+  m.addEventListener('durationchange', onDur);
+  try { m.currentTime = 1e7; } catch (e) {}
+}
+
 function seekSec(t) {
   if (!ws) return;
   const m = ws.getMediaElement && ws.getMediaElement();
@@ -1240,12 +1284,19 @@ function seekSec(t) {
     m.currentTime = Math.min(Math.max(t, 0), m.duration - 0.01);
   } else if (m) {
     pendingSeek = t;   // 元数据还没就绪：记下目标，就绪后立即跳
-    m.addEventListener('loadedmetadata', () => {
-      if (pendingSeek != null && isFinite(m.duration)) {
+    fixInfiniteDuration(m);
+    const tryApply = () => {
+      if (pendingSeek != null && isFinite(m.duration) && m.duration > 0) {
         m.currentTime = Math.min(Math.max(pendingSeek, 0), m.duration - 0.01);
         pendingSeek = null;
       }
-    }, { once: true });
+      if (pendingSeek == null) {
+        m.removeEventListener('loadedmetadata', tryApply);
+        m.removeEventListener('durationchange', tryApply);
+      }
+    };
+    m.addEventListener('loadedmetadata', tryApply);
+    m.addEventListener('durationchange', tryApply);
   } else if (typeof ws.setTime === 'function') {
     ws.setTime(t);
   }
@@ -1441,6 +1492,13 @@ function ensureLocalWhisper(onProgress) {
   return localAsrPromises[key];
 }
 
+/* 音频提取状态：转写面板和剪切面板同时显示，谁触发的都看得见 */
+function extractStatus(msg) {
+  setTranscribeStatus(msg);
+  const cs = document.getElementById('cut-status');
+  if (cs) cs.textContent = msg;
+}
+
 async function resampleTo16k(decoded) {
   const off = new OfflineAudioContext(1, Math.ceil(decoded.duration * 16000), 16000);
   const src = off.createBufferSource();
@@ -1460,13 +1518,22 @@ async function fileTo16kMono(file) {
     } catch (e) { ctx.close(); throw e; }
   } catch (e) {
     // 浏览器直接解码失败（大视频/特殊编码常见）→ 用 ffmpeg 抽出 16k 单声道音轨再解码
-    showToast('直接解码失败，改用剪辑引擎抽取音轨（首次需下载引擎）…', 4000);
+    extractStatus('⏳ 直接解码失败，改用剪辑引擎抽取音轨（首次需下载约 31MB 引擎）…');
     const ff = await ensureFFmpeg();
     const ext = ((file.name || 'x.mp4').match(/\.[^.]+$/) || ['.mp4'])[0];
+    extractStatus(`⏳ 正在载入文件到剪辑引擎（${formatSize(file.size)}，大文件需等待）…`);
     await ff.writeFile('aextract' + ext, await FFmpegUtil.fetchFile(file));
+    const onProg = p => {
+      const pct = Math.round((p.progress || 0) * 100);
+      if (pct > 0 && pct <= 100) extractStatus(`⏳ 抽取音轨中 ${pct}%…`);
+    };
+    try { ff.on('progress', onProg); } catch (e2) {}
+    extractStatus('⏳ 抽取音轨中…');
     await ff.exec(['-i', 'aextract' + ext, '-vn', '-ac', '1', '-ar', '16000', '-f', 'wav', 'aextract.wav']);
+    try { ff.off('progress', onProg); } catch (e2) {}
     const data = await ff.readFile('aextract.wav');
     try { await ff.deleteFile('aextract' + ext); await ff.deleteFile('aextract.wav'); } catch (e2) {}
+    extractStatus('⏳ 音轨抽取完成，正在解码…');
     const ab = data.slice().buffer;
     const ctx2 = new AudioContext();
     const dec2 = await ctx2.decodeAudioData(ab);
@@ -1951,8 +2018,31 @@ function playSentence(idx) {
   if (!ws.isPlaying()) ws.play();
 }
 
+/* 没有字幕时，上一句/下一句退化为在剪切片段之间跳（静音切分后即可逐段导航） */
+function cutIndexAt(t) {
+  let idx = -1;
+  for (let i = 0; i < cutSegments.length; i++) if (cutSegments[i].start <= t) idx = i;
+  return idx;
+}
+function playCutIdx(i) {
+  const c = cutSegments[Math.max(0, Math.min(i, cutSegments.length - 1))];
+  if (!c || !ws) return;
+  abState = null;
+  seekSec(c.start);
+  if (!ws.isPlaying()) ws.play();
+  showToast(`▶ ${c.label}（${fmtTime(c.start)} – ${fmtTime(c.end)}）`);
+}
+
 function prevSentence() {
-  if (!ws || subtitles.length === 0) { showToast('暂无字幕，请先转写或导入'); return; }
+  if (!ws) return;
+  if (subtitles.length === 0) {
+    if (cutSegments.length) {
+      const t = ws.getCurrentTime();
+      const i = cutIndexAt(t);
+      playCutIdx(i >= 0 && t - cutSegments[i].start < 1.5 ? i - 1 : Math.max(i, 0));
+    } else showToast('暂无字幕：先「本地转写」/导入 SRT，或用「静音切分」切段后即可逐段跳');
+    return;
+  }
   const t = ws.getCurrentTime();
   let idx = subIndexAt(t);
   if (idx <= 0) { playSentence(0); return; }
@@ -1962,13 +2052,22 @@ function prevSentence() {
 }
 
 function nextSentence() {
-  if (!ws || subtitles.length === 0) { showToast('暂无字幕，请先转写或导入'); return; }
+  if (!ws) return;
+  if (subtitles.length === 0) {
+    if (cutSegments.length) playCutIdx(cutIndexAt(ws.getCurrentTime()) + 1);
+    else showToast('暂无字幕：先「本地转写」/导入 SRT，或用「静音切分」切段后即可逐段跳');
+    return;
+  }
   const idx = subIndexAt(ws.getCurrentTime());
   playSentence(Math.min(idx + 1, subtitles.length - 1));
 }
 
 function replayCurrentSentence() {
-  if (!ws || subtitles.length === 0) { showToast('暂无字幕，请先转写或导入'); return; }
+  if (!ws) return;
+  if (subtitles.length === 0) {
+    if (cutSegments.length) playCutIdx(Math.max(cutIndexAt(ws.getCurrentTime()), 0));
+    return;
+  }
   const idx = subIndexAt(ws.getCurrentTime());
   if (idx >= 0) playSentence(idx);
 }
@@ -2428,9 +2527,11 @@ async function doLocalTranslate() {
 async function doSilenceSplit() {
   if (!currentFile || !duration) { showToast('请先加载文件'); return; }
   if (cutSegments.length > 0 && !confirm(`已有 ${cutSegments.length} 个片段，静音切分会替换现有列表，继续？`)) return;
-  showToast('⏳ 正在分析静音间隙…');
+  setCutStatus('⏳ 第 1 步/2：提取音频（大视频首次需 1–3 分钟，下方有进度）…');
+  showToast('⏳ 开始分析：先提取音频，再找停顿切分');
   try {
     const audio = await get16kAudio();
+    setCutStatus('⏳ 第 2 步/2：分析停顿并切分…');
     const FRAME = 800;                     // 50ms @16k
     const nFrames = Math.floor(audio.length / FRAME);
     const rms = new Float32Array(nFrames);
@@ -2442,11 +2543,15 @@ async function doSilenceSplit() {
     const sorted = [...rms].sort((a, b) => a - b);
     const noise = sorted[Math.floor(nFrames * 0.2)] || 0;
     const loud = sorted[Math.floor(nFrames * 0.95)] || 0.05;
-    const thr = Math.max(noise * 2.5, loud * 0.08, 0.004);
-    // 找语音区间（静音 ≥0.45s 作为分割）
+    // 影视剧模式：背景音乐/音效常年不静音，需要明显更高的"人声"阈值
+    const tvMode = document.getElementById('vad-mode-sel').value === 'tv';
+    const thr = tvMode
+      ? Math.max(noise * 3.5, loud * 0.30, 0.010)
+      : Math.max(noise * 2.5, loud * 0.08, 0.004);
+    // 找语音区间
     const segs = [];
     let inSpeech = false, segStart = 0, silentRun = 0;
-    const SIL_FRAMES = 9;                  // 0.45s
+    const SIL_FRAMES = tvMode ? 7 : 9;     // 影视对话间隙更短：0.35s / 0.45s
     for (let f = 0; f < nFrames; f++) {
       if (rms[f] > thr) {
         if (!inSpeech) { inSpeech = true; segStart = Math.max(0, f * 0.05 - 0.1); }
@@ -2472,7 +2577,11 @@ async function doSilenceSplit() {
       while (b - a > 30) { final.push([a, a + 25]); a += 25; }
       final.push([a, b]);
     });
-    if (final.length === 0) { showToast('没有检测到明显的语音段，可调大音量后重试'); return; }
+    if (final.length === 0) {
+      setCutStatus('✕ 没有检测到明显的语音段（换一档灵敏度重试）');
+      showToast('没有检测到明显的语音段，换一档灵敏度重试');
+      return;
+    }
     activeCutLoop = -1;
     cutSegments = final.map(([a, b], i) => ({
       start: Math.max(0, a),
@@ -2481,9 +2590,15 @@ async function doSilenceSplit() {
     }));
     saveCuts();
     renderCutList();
-    showToast(`✓ 按静音切出 ${cutSegments.length} 段，在选段剪切列表里逐段跟读`);
+    if (cutSegments.length <= 2 && duration > 120) {
+      showToast(`只切出 ${cutSegments.length} 段：背景音较多难以区分停顿。换一档灵敏度重试，或直接「本地转写」获得精确到句的字幕`, 6000);
+    } else {
+      showToast(`✓ 按停顿切出 ${cutSegments.length} 段（片段从人声处开始）。想要句级精确跳转请用「本地转写」`);
+    }
     document.getElementById('cut-panel').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    setCutStatus(`✓ 切分完成：${cutSegments.length} 段`);
   } catch (e) {
+    setCutStatus('✕ 切分失败：' + e.message);
     showToast('切分失败：' + e.message, 4000);
   }
 }
