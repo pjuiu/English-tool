@@ -116,6 +116,15 @@
   /* 练过的句子：左侧绿条 + 微绿底，一眼区分 */
   .sub-item.practiced { border-left: 3px solid var(--accent); background: rgba(138,158,138,0.07); }
   .sub-item.practiced.active { background: var(--accent-light); }
+  /* 每行操作按钮：窄屏时次要按钮（⛶选区/✎编辑）收进"⋯"，避免手指误触相邻按钮 */
+  .sub-more-btn { display: none; border: none; background: none; color: var(--text-muted); font-size: 16px; padding: 2px 6px; cursor: pointer; }
+  .sub-extra { display: inline-flex; gap: 4px; }
+  @media (max-width: 640px) {
+    .sub-more-btn { display: inline-block; }
+    .sub-extra { display: none; }
+    .sub-item.show-extra .sub-extra { display: inline-flex; margin-top: 4px; flex-basis: 100%; }
+    .sub-item { flex-wrap: wrap; }
+  }
   @media (max-width: 1020px) {
     #main.open { display: block; }
     #main-right { width: auto; position: static; max-height: none; overflow: visible; }
@@ -420,10 +429,11 @@
     position: absolute;
     left: 0; right: 0; bottom: 8px;
     text-align: center;
-    pointer-events: none;
+    pointer-events: none;   /* 容器本身不挡视频点击/拖控制条 */
     padding: 0 20px;
     z-index: 6;
   }
+  #video-caption .kw { pointer-events: auto; }   /* 单词本身可点击查义，与字幕列表行为一致 */
   #video-caption .cap-en {
     display: inline-block;
     background: rgba(0,0,0,0.65);
@@ -589,7 +599,10 @@
     transition: opacity .2s, transform .2s;
     pointer-events: none;
     z-index: 9999;
-    white-space: nowrap;
+    max-width: min(560px, 90vw);   /* 长错误消息（含 e.message）换行显示，不再冲出屏幕 */
+    white-space: pre-wrap;
+    word-break: break-word;
+    text-align: center;
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
@@ -613,7 +626,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260706c</span>
+    <span>Shadow Reading Lab · v20260707</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -863,7 +876,7 @@
       <button class="btn" id="sub-none" onclick="setSubMode('none')">无</button>
       <button class="btn active" id="sub-en-btn" onclick="setSubMode('en')">英文</button>
       <button class="btn" id="sub-bi" onclick="setSubMode('bilingual')">双语</button>
-      <button class="btn" onclick="doLocalTranslate()" title="浏览器本地翻译模型（首次下载约 110MB，之后离线可用），零费用">🆓 本地翻译</button>
+      <button class="btn" id="local-translate-btn" onclick="doLocalTranslate()" title="浏览器本地翻译模型（首次下载约 110MB，之后离线可用），零费用；批量处理，随时可停">🆓 本地翻译</button>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
       <span class="ctrl-label">遮原字幕</span>
@@ -936,9 +949,11 @@ let sentencePause = false;   // 逐句暂停模式
 let pauseSegEnd = null;      // 当前句结束时间（逐句暂停用）
 let abState = null;          // {end, cb} 播放到 end 后暂停并执行 cb（录音对比用）
 let lastActiveSub = null;    // 当前高亮字幕，用于自动滚动
-let mediaRecorder = null;
-let recChunks = [];
-let recordings = [];         // {url, label, region}
+// 三条录音流程（手动录音 / 自动跟读 / 练习面板）各自独立的 recorder+chunks，避免互相污染
+let manualRecorder = null, manualChunks = [];
+let autoRecorder = null, autoChunks = [];
+let recordings = [];         // {url, label, region, _key}
+let recKeySeq = 0;           // 每条录音的稳定标识，按钮绑定用它而非数组下标（下标会因删除而错位）
 let recAudio = new Audio();
 let cutSegments = [];        // 选段剪切列表 [{start, end, label, text?, practiceCount?, lastPracticed?}]
 let cutMarkA = null;         // 手动打点：起点
@@ -961,13 +976,18 @@ let kwSets = [];             // 当前句的词元素缓存 [subEnSpans, capSpan
 let kwPrevIdx = -1;
 let karaokeRaf = null;
 
-/* 二分查找当前时间所在句（1170 句的列表线性扫会拖慢播放循环） */
-function findSubIdxAt(t) {
+/* 二分查找"最后一个 start<=t 的句子下标"——subIndexAt/findSubIdxAt 共用的核心 */
+function lastIdxWithStartLE(t) {
   let lo = 0, hi = subtitles.length - 1, ans = -1;
   while (lo <= hi) {
     const m = (lo + hi) >> 1;
     if (subtitles[m].start <= t) { ans = m; lo = m + 1; } else hi = m - 1;
   }
+  return ans;
+}
+/* 严格包含：t 必须落在该句 [start,end] 内，否则返回 -1（用于高亮/卡拉OK，句间空白不高亮任何句） */
+function findSubIdxAt(t) {
+  const ans = lastIdxWithStartLE(t);
   return (ans >= 0 && t <= subtitles[ans].end) ? ans : -1;
 }
 let activeRowEl = null;   // 当前高亮行（避免每次全列表遍历）
@@ -1110,12 +1130,13 @@ let idb = null;
 function openIdb() {
   return new Promise((resolve, reject) => {
     if (idb) return resolve(idb);
-    const rq = indexedDB.open('shadow_lab', 3);
+    const rq = indexedDB.open('shadow_lab', 4);
     rq.onupgradeneeded = () => {
       const db = rq.result;
       if (!db.objectStoreNames.contains('recordings')) db.createObjectStore('recordings', { keyPath: 'id', autoIncrement: true });
       if (!db.objectStoreNames.contains('handles')) db.createObjectStore('handles', { keyPath: 'id', autoIncrement: true });
       if (!db.objectStoreNames.contains('subs')) db.createObjectStore('subs', { keyPath: 'fk' });   // 字幕：localStorage 5MB 太小且满时静默丢
+      if (!db.objectStoreNames.contains('cuts')) db.createObjectStore('cuts', { keyPath: 'fk' });   // 剪切片段：同理迁出 localStorage
     };
     rq.onsuccess = () => { idb = rq.result; resolve(idb); };
     rq.onerror = () => reject(rq.error);
@@ -1239,11 +1260,23 @@ function loadFile(file) {
   // 从 IndexedDB 恢复该文件的历史录音
   idbGetRecs(fileKey()).then(saved => {
     if (fileKey() !== currentFileName + '_' + (currentFile ? currentFile.size : '')) return;
-    saved.forEach(r => recordings.push({ id: r.id, url: URL.createObjectURL(r.blob), label: r.label, region: r.region }));
+    saved.forEach(r => recordings.push({ id: r.id, url: URL.createObjectURL(r.blob), label: r.label, region: r.region, _key: ++recKeySeq }));
     if (saved.length) renderRecordings();
   });
   cutSegments = [];
-  try{ cutSegments = JSON.parse(localStorage.getItem(cutsKey()) || '[]'); }catch(e){}
+  const fkCuts = cutsKey();
+  (async () => {
+    let restoredCuts = await idbGetCuts(fkCuts);
+    if (!restoredCuts) {
+      try { restoredCuts = JSON.parse(localStorage.getItem(fkCuts) || 'null'); } catch (e) {}
+    }
+    if (cutsKey() !== fkCuts) return;   // 期间换了文件
+    if (restoredCuts && restoredCuts.length) {
+      cutSegments = restoredCuts;
+      saveCuts();   // 迁移进 IndexedDB
+      renderCutList();
+    }
+  })();
   activeCutLoop = -1;
   cutMarkA = cutMarkB = null;
   updateCutMarkInfo();
@@ -1440,7 +1473,7 @@ function initWaveSurfer(file, pre) {
           const waitMs = seg ? Math.max((seg.end - seg.start) * 1500, 1500) : 2500;
           clearTimeout(pauseResumeTimer);
           pauseResumeTimer = setTimeout(() => {
-            if (sentencePause && ws && !ws.isPlaying() && !practice && !autoShadowOn) ws.play();
+            if (sentencePause && ws && !ws.isPlaying() && !practice && !autoShadowOn) safePlay();
           }, waitMs);
         }
         pauseSegEnd = null;
@@ -1455,7 +1488,7 @@ function initWaveSurfer(file, pre) {
     document.getElementById('play-btn').textContent = '▶ 播放';
     if (isLooping && currentRegion) {
       seekSec(currentRegion.start);
-      ws.play();
+      safePlay();
     }
   });
 
@@ -1506,6 +1539,22 @@ function clearRegion() {
 function togglePlay() {
   if (!ws) return;
   ws.playPause();
+}
+
+/* 包一层 play()：iOS Safari 对非用户直接触发的播放（定时器/Promise 回调，
+   如自动跟读、AB循环）可能拒绝播放请求，这里捕获失败并提示，而不是静默卡住 */
+let playBlockedWarned = false;
+function safePlay() {
+  if (!ws) return;
+  const p = ws.play();
+  if (p && typeof p.catch === 'function') {
+    p.catch(() => {
+      if (!playBlockedWarned) {
+        playBlockedWarned = true;
+        showToast('⚠️ 浏览器拦截了自动播放，请手动点一下「▶ 播放」解锁后再试', 5000);
+      }
+    });
+  }
 }
 
 /* 绝对时间跳转：直接操作媒体元素，不依赖波形解码——
@@ -1613,7 +1662,7 @@ function toggleLoop() {
   document.getElementById('loop-btn').classList.toggle('active', isLooping);
   if (isLooping && currentRegion && ws) {
     seekSec(currentRegion.start);
-    ws.play();
+    safePlay();
   }
 }
 
@@ -1953,7 +2002,8 @@ async function doLocalTranscribe() {
       saveSubtitles();
       renderSubtitleList();
       const doneMin = Math.min(Math.round((s0 + PIECE) / SR / 60 * 10) / 10, totalMin);
-      if (p < totalPieces - 1) {
+      // 用户按下停止后不再用逐段进度覆盖"正在停止"提示，避免看起来像没生效
+      if (p < totalPieces - 1 && !localTransCancel) {
         setTranscribeStatus(`⏳ 已转写 ${doneMin}/${totalMin} 分钟（${subtitles.length} 句）——已出的字幕可以先点句练习，再点一次按钮可停止`);
       }
     }
@@ -2180,6 +2230,11 @@ document.getElementById('subtitle-list').addEventListener('click', e => {
     return s ? s.text : '';
   });
 });
+// 视频画面内嵌字幕：之前只有容器 pointer-events:none 却没绑监听，点词完全无反应
+document.getElementById('video-caption').addEventListener('click', e => {
+  if (blindMode) return;
+  wordClickHandler(e, () => lastActiveSub ? lastActiveSub.text : '');
+});
 
 function updateCurrentSubtitle(t) {
   if (subMode === 'none' || subtitles.length === 0) return;
@@ -2314,8 +2369,11 @@ function renderSubtitleList() {
       </div>
       <button class="fav-btn ${favs.has(i) ? 'faved' : ''}" onclick="toggleFav(${i},event)" title="收藏这句">${favs.has(i) ? '⭐' : '☆'}</button>
       <button class="btn" style="padding:4px 8px;font-size:11px;background:var(--accent);color:#fff;border-color:var(--accent);" onclick="startPractice(${i});event.stopPropagation();" title="进入逐句跟读练习">🎤</button>
-      <button class="btn" style="padding:4px 8px;font-size:11px;" onclick="selectSubtitle(${i},event)" title="选为循环区间">⛶</button>
-      <button class="btn" style="padding:4px 8px;font-size:11px;" onclick="editSubtitle(${i},event)" title="修改转写错误">✎</button>
+      <button class="sub-more-btn" onclick="toggleSubMore(this, event)" title="更多操作">⋯</button>
+      <span class="sub-extra">
+        <button class="btn" style="padding:4px 8px;font-size:11px;" onclick="selectSubtitle(${i},event)" title="选为循环区间">⛶</button>
+        <button class="btn" style="padding:4px 8px;font-size:11px;" onclick="editSubtitle(${i},event)" title="修改转写错误">✎</button>
+      </span>
     `;
     div.addEventListener('click', (e) => {
       if (e.target.tagName === 'BUTTON') return;
@@ -2565,12 +2623,18 @@ function srtTimeToSec(t) {
 // ═══════════════════════════════════════════════════════
 //  SAVED SEGMENTS (localStorage)
 // ═══════════════════════════════════════════════════════
-function getSavedKey() { return 'shadow_segments_' + currentFileName; }
+// 用 fileKey()（文件名+大小）而非仅文件名，避免同名不同文件的历史片段互相串台
+function getSavedKey() { return 'shadow_segments_' + fileKey(); }
 
 function loadSavedSegments() {
   const wrap = document.getElementById('saved-wrap');
   const list = document.getElementById('saved-list');
-  const raw = localStorage.getItem(getSavedKey());
+  let raw = localStorage.getItem(getSavedKey());
+  if (raw === null) {
+    // 兼容旧版（仅按文件名存储）的历史数据，读到后原地迁移到新 key
+    const legacy = localStorage.getItem('shadow_segments_' + currentFileName);
+    if (legacy !== null) { raw = legacy; localStorage.setItem(getSavedKey(), legacy); localStorage.removeItem('shadow_segments_' + currentFileName); }
+  }
   const segs = raw ? JSON.parse(raw) : [];
   if (segs.length === 0) { wrap.style.display = 'none'; return; }
   wrap.style.display = 'block';
@@ -2620,7 +2684,7 @@ function jumpToSegment(start, end) {
   });
   seekSec(start);
   updateRegionInfo();
-  if (!ws.isPlaying()) ws.play();
+  if (!ws.isPlaying()) safePlay();
 }
 
 function deleteSegment(i) {
@@ -2667,6 +2731,16 @@ async function idbAllSubs() {
     });
   } catch (e) { return []; }
 }
+async function idbAllCuts() {
+  try {
+    const db = await openIdb();
+    return await new Promise(resolve => {
+      const rq = db.transaction('cuts', 'readonly').objectStore('cuts').getAll();
+      rq.onsuccess = () => resolve(rq.result || []);
+      rq.onerror = () => resolve([]);
+    });
+  } catch (e) { return []; }
+}
 function saveSubtitles() {
   if (!currentFileName) return;
   const fk = subsKey();
@@ -2700,13 +2774,9 @@ function exportSRT() {
 //  SENTENCE NAVIGATION (逐句跟读)
 // ═══════════════════════════════════════════════════════
 function subIndexAt(t) {
-  let idx = subtitles.findIndex(s => t >= s.start && t <= s.end);
-  if (idx === -1) {
-    for (let i = subtitles.length - 1; i >= 0; i--) {
-      if (subtitles[i].start <= t) { idx = i; break; }
-    }
-  }
-  return idx;
+  // 等价于"最后一个 start<=t 的句子"（无论 t 是否仍在其 end 内）——
+  // 与 findSubIdxAt() 用同一个二分查找，长视频（500+ 句）导航按钮不再线性扫描
+  return lastIdxWithStartLE(t);
 }
 
 function playSentence(idx) {
@@ -2716,7 +2786,7 @@ function playSentence(idx) {
   pauseSegEnd = sentencePause ? s.end : null;
   loopSegRange = loopSentenceMode ? [s.start, s.end] : null;
   seekSec(s.start);
-  if (!ws.isPlaying()) ws.play();
+  if (!ws.isPlaying()) safePlay();
 }
 
 /* 没有字幕时，上一句/下一句退化为在剪切片段之间跳（静音切分后即可逐段导航） */
@@ -2730,7 +2800,7 @@ function playCutIdx(i) {
   if (!c || !ws) return;
   abState = null;
   seekSec(c.start);
-  if (!ws.isPlaying()) ws.play();
+  if (!ws.isPlaying()) safePlay();
   showToast(`▶ ${c.label}（${fmtTime(c.start)} – ${fmtTime(c.end)}）`);
 }
 
@@ -2802,25 +2872,26 @@ async function saveRecording(blob, label, region) {
   const rec = { fileKey: fileKey(), label, region, blob, at: Date.now() };
   let id = null;
   try { id = await idbAddRec(rec); } catch (e) { /* IDB 不可用则仅存内存 */ }
-  recordings.push({ id, url: URL.createObjectURL(blob), label, region });
+  recordings.push({ id, url: URL.createObjectURL(blob), label, region, _key: ++recKeySeq });
   renderRecordings();
 }
 
 async function toggleRecord() {
   if (autoShadowOn) { showToast('自动跟读进行中，请先停止自动跟读'); return; }
+  if (practice && prRecorder && prRecorder.state === 'recording') { showToast('练习面板正在录音，请先停止'); return; }
   const btn = document.getElementById('rec-btn');
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    mediaRecorder.stop();
+  if (manualRecorder && manualRecorder.state === 'recording') {
+    manualRecorder.stop();
     return;
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    recChunks = [];
-    mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recChunks.push(e.data); };
-    mediaRecorder.onstop = async () => {
+    manualChunks = [];
+    manualRecorder = new MediaRecorder(stream);
+    manualRecorder.ondataavailable = e => { if (e.data.size > 0) manualChunks.push(e.data); };
+    manualRecorder.onstop = async () => {
       stream.getTracks().forEach(tr => tr.stop());
-      const blob = new Blob(recChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      const blob = new Blob(manualChunks, { type: manualRecorder.mimeType || 'audio/webm' });
       let label = '录音 ' + (recordings.length + 1);
       if (currentRegion) label += `（${fmtTime(currentRegion.start)} – ${fmtTime(currentRegion.end)}）`;
       await saveRecording(blob, label, currentRegion ? { start: currentRegion.start, end: currentRegion.end } : null);
@@ -2829,7 +2900,7 @@ async function toggleRecord() {
       showToast('录音已保存，点「对比」听原声 + 你的发音');
     };
     if (ws && ws.isPlaying()) ws.pause();
-    mediaRecorder.start();
+    manualRecorder.start();
     btn.textContent = '⏹ 停止录音';
     btn.classList.add('recording');
     showToast('录音中…再按一次（或按 M）停止');
@@ -2845,6 +2916,8 @@ async function toggleAutoShadow() {
   if (autoShadowOn) { stopAutoShadow('自动跟读已停止'); return; }
   if (!ws || !duration) { showToast('请先加载文件'); return; }
   if (subtitles.length === 0) { showToast('自动跟读需要字幕，请先转写或导入'); return; }
+  if (manualRecorder && manualRecorder.state === 'recording') { showToast('请先停止手动录音'); return; }
+  if (practice && prRecorder && prRecorder.state === 'recording') { showToast('练习面板正在录音，请先停止'); return; }
   try {
     autoStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) { showToast('无法访问麦克风：' + e.message); return; }
@@ -2862,34 +2935,34 @@ function autoStep() {
   setAutoStatus(`▶ 第 ${autoIdx + 1}/${subtitles.length} 句：听原声…`);
   abState = { end: s.end, cb: () => { if (autoShadowOn) autoRecordSentence(s); } };
   seekSec(s.start);
-  if (!ws.isPlaying()) ws.play();
+  if (!ws.isPlaying()) safePlay();
 }
 
 function autoRecordSentence(s) {
   // 录音时长 = 句长 × 1.2 + 0.8 秒，最短 2 秒
   const ms = Math.max((s.end - s.start) * 1200 + 800, 2000);
   setAutoStatus(`🎙 第 ${autoIdx + 1} 句：请跟读…`);
-  recChunks = [];
-  mediaRecorder = new MediaRecorder(autoStream);
-  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recChunks.push(e.data); };
+  autoChunks = [];
+  autoRecorder = new MediaRecorder(autoStream);
+  autoRecorder.ondataavailable = e => { if (e.data.size > 0) autoChunks.push(e.data); };
   const recIdx = autoIdx;
-  mediaRecorder.onstop = async () => {
-    const blob = new Blob(recChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+  autoRecorder.onstop = async () => {
+    const blob = new Blob(autoChunks, { type: autoRecorder.mimeType || 'audio/webm' });
     const label = `句 ${recIdx + 1}（${fmtTime(s.start)}）${s.text.slice(0, 24)}${s.text.length > 24 ? '…' : ''}`;
     await saveRecording(blob, label, { start: s.start, end: s.end });
     bumpPracticeCount(recIdx);
     if (autoShadowOn) { autoIdx++; autoStep(); }
   };
-  mediaRecorder.start();
+  autoRecorder.start();
   autoTimer = setTimeout(() => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+    if (autoRecorder && autoRecorder.state === 'recording') autoRecorder.stop();
   }, ms);
 }
 
 function stopAutoShadow(msg) {
   autoShadowOn = false;
   clearTimeout(autoTimer);
-  if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+  if (autoRecorder && autoRecorder.state === 'recording') autoRecorder.stop();
   if (autoStream) { autoStream.getTracks().forEach(t => t.stop()); autoStream = null; }
   abState = null;
   document.getElementById('auto-shadow-btn').classList.remove('active');
@@ -2918,6 +2991,11 @@ function bumpPracticeCount(idx) {
     const dk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     const log = JSON.parse(localStorage.getItem('shadow_daily_log') || '{}');
     log[dk] = (log[dk] || 0) + 1;
+    // 只保留近 400 天，防止用一年后这个条目无限增长
+    const keys = Object.keys(log);
+    if (keys.length > 400) {
+      keys.sort().slice(0, keys.length - 400).forEach(k => delete log[k]);
+    }
     localStorage.setItem('shadow_daily_log', JSON.stringify(log));
   } catch (e) {}
   if (idx == null || idx < 0) { renderPracticeStats(); return; }
@@ -2937,14 +3015,18 @@ function renderPracticeStats() {
   try { log = JSON.parse(localStorage.getItem('shadow_daily_log') || '{}'); } catch (e) {}
   const dk = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const today = log[dk(new Date())] || 0;
+  // 连续天数：只统计"今天及以前"连续有打卡的天数——今天没练就不算今天，
+  // 避免"昨天练了、今天还没打开"时显示的数字让人误以为今天已经打卡
   let streak = 0;
   const d = new Date();
-  if (!log[dk(d)]) d.setDate(d.getDate() - 1);
+  const todayCounted = !!log[dk(d)];
+  if (!todayCounted) d.setDate(d.getDate() - 1);
   while (log[dk(d)]) { streak++; d.setDate(d.getDate() - 1); }
   const parts = [];
   if (subtitles.length) parts.push(`已跟读 ${practiced}/${subtitles.length} 句（${Math.round(practiced / subtitles.length * 100)}%）`);
   parts.push(`今日 ${today} 次`);
-  if (streak) parts.push(`连续 ${streak} 天`);
+  if (streak && todayCounted) parts.push(`连续 ${streak} 天`);
+  else if (streak && !todayCounted) parts.push(`连续 ${streak} 天（今天还没打卡，练一句延续）`);
   el.textContent = '🎤 ' + parts.join(' · ');
 }
 
@@ -3020,7 +3102,7 @@ function practicePlay() {
   const hint = '⚠️ 此片段无字幕 → 点「📝 转写此片段」（免费）生成后可逐句跟读、评分';
   abState = { end: practice.end, cb: () => setPracticeStatus(noText ? hint : '原句播完 → 按 R 开始跟读录音') };
   seekSec(practice.start);
-  ws.play();
+  safePlay();
   setPracticeStatus(noText ? '▶ 播放中… ' + hint : '▶ 播放原句中…');
 }
 
@@ -3036,13 +3118,13 @@ async function practiceRecord() {
     if (!prStream || !prStream.active) prStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) { showToast('无法访问麦克风：' + e.message); return; }
   stopAllPlayback();
-  recChunks = [];
+  let prChunks = [];
   prRecorder = new MediaRecorder(prStream);
-  prRecorder.ondataavailable = e => { if (e.data.size > 0) recChunks.push(e.data); };
+  prRecorder.ondataavailable = e => { if (e.data.size > 0) prChunks.push(e.data); };
   prRecorder.onstop = async () => {
     btn.classList.remove('recording');
     btn.innerHTML = '🎙 跟读录音 <small>R</small>';
-    const blob = new Blob(recChunks, { type: prRecorder.mimeType || 'audio/webm' });
+    const blob = new Blob(prChunks, { type: prRecorder.mimeType || 'audio/webm' });
     if (practice) {
       if (practice.recUrl) URL.revokeObjectURL(practice.recUrl);
       practice.recUrl = URL.createObjectURL(blob);
@@ -3086,7 +3168,7 @@ function practiceCompare() {
   setPracticeStatus('🔁 对比：先原声，后你的录音…');
   abState = { end: practice.end, cb: () => { recAudio.src = practice.recUrl; recAudio.currentTime = 0; recAudio.play(); } };
   seekSec(practice.start);
-  ws.play();
+  safePlay();
   markPlayingBtn(btn);
 }
 
@@ -3325,13 +3407,23 @@ function ensureLocalTranslator(onProgress) {
   localMtPromise.catch(() => { localMtPromise = null; });
   return localMtPromise;
 }
+let localMtCancel = false;
 async function doLocalTranslate() {
+  const btn = document.getElementById('local-translate-btn');
+  if (translating) {   // 再点一次 = 停止（已翻译的句子保留）
+    localMtCancel = true;
+    document.getElementById('translate-status').textContent = '⏹ 正在停止…（已翻译的句子会保留）';
+    return;
+  }
   if (subtitles.length === 0) { showToast('请先转写或导入字幕'); return; }
   const need = subtitles.filter(s => !s.zh && s.text);
   if (need.length === 0) { showToast('所有句子都已有翻译'); return; }
-  if (translating) return;
   translating = true;
+  localMtCancel = false;
+  btn.textContent = '⏹ 停止翻译';
+  btn.classList.add('active');
   const st = document.getElementById('translate-status');
+  const BATCH = 10;   // 批量传给模型，减少逐句 await 开销；某批失败自动退化为单句重试
   try {
     st.textContent = '⏳ 加载本地翻译模型（首次约 110MB，下载一次后离线可用）…';
     const mt = await ensureLocalTranslator(p => {
@@ -3339,24 +3431,40 @@ async function doLocalTranslate() {
         st.textContent = `⏳ 下载翻译模型 ${Math.round(p.progress || 0)}%…`;
       }
     });
-    for (let i = 0; i < need.length; i++) {
-      st.textContent = `⏳ 本地翻译中 ${i + 1}/${need.length}…`;
+    const pickText = out => (Array.isArray(out) ? out[0].translation_text : out.translation_text) || '';
+    let done = 0;
+    for (let i = 0; i < need.length; i += BATCH) {
+      if (localMtCancel) break;
+      const batch = need.slice(i, i + BATCH);
+      st.textContent = `⏳ 本地翻译中 ${done}/${need.length}…（再点一次按钮可停止）`;
       try {
-        const out = await mt(need[i].text);
-        need[i].zh = (Array.isArray(out) ? out[0].translation_text : out.translation_text) || '';
-      } catch (e) { /* 单句失败跳过 */ }
+        const outs = await mt(batch.map(s => s.text));
+        const arr = Array.isArray(outs) ? outs : [outs];
+        batch.forEach((s, j) => { s.zh = pickText(arr[j] ?? arr[0]); });
+      } catch (e) {
+        // 批量翻译失败（部分模型/版本不支持数组输入）→ 逐句重试
+        for (const s of batch) {
+          if (localMtCancel) break;
+          try { s.zh = pickText(await mt(s.text)); } catch (e2) { /* 单句失败跳过 */ }
+        }
+      }
+      done = Math.min(i + BATCH, need.length);
+      saveSubtitles();
+      if (i % (BATCH * 3) === 0) renderSubtitleList();   // 每 30 句刷新一次列表，不必每批都重绘
     }
     saveSubtitles();
-    st.textContent = '✓ 本地翻译完成（免费）';
-    lastActiveSub = null;
     renderSubtitleList();
+    st.textContent = localMtCancel ? `⏹ 已停止，已翻译 ${done}/${need.length} 句（保留）` : '✓ 本地翻译完成（免费）';
+    lastActiveSub = null;
     if (subMode !== 'bilingual') setSubMode('bilingual');
-    showToast('本地翻译完成！');
+    showToast(localMtCancel ? '已停止，已翻译部分已保留' : '本地翻译完成！');
   } catch (e) {
     st.textContent = '✕ 本地翻译失败：' + e.message;
     showToast('本地翻译失败：' + e.message, 4000);
   }
   translating = false;
+  btn.textContent = '🆓 本地翻译';
+  btn.classList.remove('active');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -3556,19 +3664,28 @@ function renderRecordings() {
     return;
   }
   list.innerHTML = '';
-  recordings.forEach((r, i) => {
+  recordings.forEach((r) => {
     const div = document.createElement('div');
     div.className = 'rec-item';
+    // 按钮绑定录音的稳定 _key，而非当前渲染时的数组下标——
+    // 避免快速连续删除时，第二次点击的下标因数组已变短而错位删错录音
     div.innerHTML = `
       <span class="rec-label">${escHtml(r.label)}</span>
-      <button class="btn" onclick="playOriginalOfRec(${i}, event)">▶ 原声</button>
-      <button class="btn" onclick="playRecording(${i}, event)">▶ 我的</button>
-      <button class="btn" onclick="compareRecording(${i}, event)">🔁 对比</button>
+      <button class="btn" onclick="playOriginalOfRec(${r._key}, event)">▶ 原声</button>
+      <button class="btn" onclick="playRecording(${r._key}, event)">▶ 我的</button>
+      <button class="btn" onclick="compareRecording(${r._key}, event)">🔁 对比</button>
       <a class="btn" href="${r.url}" download="${escHtml(r.label.replace(/[\\/:*?"<>|]/g,'_'))}.webm" title="下载录音文件">⬇</a>
-      <button class="btn danger" onclick="deleteRecording(${i})">删</button>
+      <button class="btn danger" onclick="deleteRecording(${r._key})">删</button>
     `;
     list.appendChild(div);
   });
+}
+function recByKey(key) { return recordings.find(r => r._key === key); }
+
+/* 窄屏字幕行：⋯ 展开/收起 ⛶✎ 次要按钮 */
+function toggleSubMore(btn, e) {
+  e.stopPropagation();
+  btn.closest('.sub-item').classList.toggle('show-extra');
 }
 
 function stopAllPlayback() {
@@ -3578,11 +3695,13 @@ function stopAllPlayback() {
   markPlayingBtn(null);
 }
 
-function playRecording(i, e) {
+function playRecording(key, e) {
   // 再点一次 = 停止
   if (e && e.target.classList.contains('playing-now')) { stopAllPlayback(); return; }
+  const rec = recByKey(key);
+  if (!rec) return;
   stopAllPlayback();
-  recAudio.src = recordings[i].url;
+  recAudio.src = rec.url;
   recAudio.currentTime = 0;
   recAudio.play();
   markPlayingBtn(e ? e.target : null);
@@ -3592,34 +3711,39 @@ function recRegion(rec) {
   return rec.region || (currentRegion ? { start: currentRegion.start, end: currentRegion.end } : null);
 }
 
-function playOriginalOfRec(i, e) {
+function playOriginalOfRec(key, e) {
   if (e && e.target.classList.contains('playing-now')) { stopAllPlayback(); return; }
-  const reg = recRegion(recordings[i]);
+  const rec = recByKey(key);
+  if (!rec) return;
+  const reg = recRegion(rec);
   if (!reg || !ws || !duration) { showToast('该录音没有关联区间，请先拖选一段'); return; }
   stopAllPlayback();
   abState = { end: reg.end, cb: null };
   seekSec(reg.start);
-  ws.play();
+  safePlay();
   markPlayingBtn(e ? e.target : null);
 }
 
-function compareRecording(i, e) {
+function compareRecording(key, e) {
   if (e && e.target.classList.contains('playing-now')) { stopAllPlayback(); return; }
-  const rec = recordings[i];
+  const rec = recByKey(key);
+  if (!rec) return;
   const reg = recRegion(rec);
   stopAllPlayback();
-  if (!reg || !ws || !duration) { playRecording(i, e); return; }
+  if (!reg || !ws || !duration) { playRecording(key, e); return; }
   showToast('对比播放：先原声，后你的录音');
   abState = { end: reg.end, cb: () => { recAudio.src = rec.url; recAudio.currentTime = 0; recAudio.play(); } };
   seekSec(reg.start);
-  ws.play();
+  safePlay();
   markPlayingBtn(e ? e.target : null);
 }
 
-function deleteRecording(i) {
-  if (recordings[i].id != null) idbDelRec(recordings[i].id);
-  URL.revokeObjectURL(recordings[i].url);
-  recordings.splice(i, 1);
+function deleteRecording(key) {
+  const idx = recordings.findIndex(r => r._key === key);
+  if (idx === -1) return;
+  if (recordings[idx].id != null) idbDelRec(recordings[idx].id);
+  URL.revokeObjectURL(recordings[idx].url);
+  recordings.splice(idx, 1);
   renderRecordings();
 }
 
@@ -3627,8 +3751,30 @@ function deleteRecording(i) {
 //  CUT SEGMENTS (选段剪切：自动等分 / 手动打点 / 循环)
 // ═══════════════════════════════════════════════════════
 function cutsKey() { return 'shadow_cuts_' + currentFileName + '_' + (currentFile ? currentFile.size : ''); }
+
+async function idbPutCuts(fk, cuts) {
+  const db = await openIdb();
+  return new Promise((resolve, reject) => {
+    const rq = db.transaction('cuts', 'readwrite').objectStore('cuts').put({ fk, cuts, at: Date.now() });
+    rq.onsuccess = () => resolve();
+    rq.onerror = () => reject(rq.error);
+  });
+}
+async function idbGetCuts(fk) {
+  try {
+    const db = await openIdb();
+    return await new Promise(resolve => {
+      const rq = db.transaction('cuts', 'readonly').objectStore('cuts').get(fk);
+      rq.onsuccess = () => resolve(rq.result ? rq.result.cuts : null);
+      rq.onerror = () => resolve(null);
+    });
+  } catch (e) { return null; }
+}
 function saveCuts() {
-  try { localStorage.setItem(cutsKey(), JSON.stringify(cutSegments)); } catch (e) {}
+  if (!currentFileName) return;
+  const fk = cutsKey();
+  idbPutCuts(fk, cutSegments).catch(e => showToast('⚠️ 片段保存失败：' + (e && e.message || e), 5000));
+  try { localStorage.removeItem(fk); } catch (e) {}   // 清理旧的 localStorage 副本
 }
 
 function splitEqual(min) {
@@ -3727,7 +3873,7 @@ function playCut(i) {
   if (activeCutLoop !== -1) { activeCutLoop = -1; isLooping = false; document.getElementById('loop-btn').classList.remove('active'); renderCutList(); }
   abState = { end: c.end, cb: null };   // 播到片段末尾自动停
   seekSec(c.start);
-  ws.play();
+  safePlay();
 }
 
 function loopCut(i) {
@@ -3755,7 +3901,7 @@ function loopCut(i) {
   saveCuts();
   renderCutList();
   seekSec(c.start);
-  ws.play();
+  safePlay();
 }
 
 function deleteCut(i) {
@@ -3865,8 +4011,9 @@ async function backupShadowData() {
     const k = localStorage.key(i);
     if (k && k.startsWith('shadow_')) data.items[k] = localStorage.getItem(k);
   }
-  // IndexedDB 里的字幕也打包
+  // IndexedDB 里的字幕、剪切片段也打包
   (await idbAllSubs()).forEach(rec => { data.items[rec.fk] = JSON.stringify(rec.subs); });
+  (await idbAllCuts()).forEach(rec => { data.items[rec.fk] = JSON.stringify(rec.cuts); });
   const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
   const d = new Date();
@@ -3889,8 +4036,9 @@ function restoreShadowData(e) {
     if (!confirm(`导入 ${data.exportedAt ? data.exportedAt.slice(0,10) : '未知日期'} 的备份（${n} 项）？\n同名数据将被备份内容覆盖。`)) return;
     Object.keys(data.items).forEach(k => {
       if (k.startsWith('shadow_subs_')) {
-        // 字幕写入 IndexedDB
         try { idbPutSubs(k, JSON.parse(data.items[k])).catch(() => {}); } catch (err) {}
+      } else if (k.startsWith('shadow_cuts_')) {
+        try { idbPutCuts(k, JSON.parse(data.items[k])).catch(() => {}); } catch (err) {}
       } else {
         try { localStorage.setItem(k, data.items[k]); } catch (err) {}
       }
@@ -3944,7 +4092,7 @@ function resetAll() {
   if (!confirm('换文件将清除当前工作（转写字幕已自动保存，下次打开同一文件会恢复），继续？')) return;
   if (autoShadowOn) stopAutoShadow();
   if (practice) exitPractice();
-  if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+  if (manualRecorder && manualRecorder.state === 'recording') manualRecorder.stop();
   stopAllPlayback();
   if (ws) { ws.destroy(); ws = null; }
   subtitles = [];
