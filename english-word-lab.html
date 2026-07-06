@@ -39,11 +39,10 @@
   #resultBar{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
   .wordlab-grid{display:flex;gap:20px;align-items:stretch;}
   .wl-left{flex:0 0 58%;}
-  .wl-right{flex:0 0 42%;position:sticky;top:72px;max-height:calc(100vh - 90px);overflow-y:auto;display:flex;flex-direction:column;}
-  @media (max-width:768px){
-    .wordlab-grid{flex-direction:column;}
-    .wl-left,.wl-right{flex:1 1 100%;}
-    .wl-right{position:static;}
+  .wl-right{
+    flex:0 0 42%;position:sticky;top:72px;overflow-y:auto;display:flex;flex-direction:column;
+    max-height:calc(100vh - 90px);   /* fallback */
+    max-height:calc(100dvh - 90px);  /* iOS 16+：自动排除虚拟键盘高度 */
   }
   .level-row{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
   .level-pill{
@@ -85,10 +84,11 @@
   }
   .hl-label{font-size:12px;color:#64748b;}
   .hl-swatch{
-    width:22px;height:22px;border-radius:4px;cursor:pointer;
+    width:28px;height:28px;border-radius:6px;cursor:pointer;
     border:2px solid transparent;transition:border-color .12s;
     display:flex;align-items:center;justify-content:center;font-size:12px;
   }
+
   .hl-swatch.selected{border-color:#334155 !important;}
   .hl-clear{border:1px dashed #cbd5e1;color:#94a3b8;}
   #analyzedText .w{cursor:pointer;border-radius:3px;padding:0 1px;}
@@ -348,18 +348,60 @@
   .mat-tag{background:#eef2f7;color:#475569;font-size:11px;padding:2px 8px;border-radius:999px;}
   .mat-meta{font-size:12px;color:#94a3b8;}
   .mat-actions{display:flex;gap:8px;flex-shrink:0;}
+
+  /* ══ 移动端适配（放在样式表末尾，确保同优先级选择器下总能覆盖前面的桌面端规则）══
+     手机 + iPad 竖屏走此断点；iPad 竖屏 768px 需保留双列桌面布局，故用 767 而非 768 */
+  @media (max-width: 767px) {
+    header {
+      height:auto;flex-wrap:wrap;padding:8px 12px;gap:6px;
+    }
+    header .logo{font-size:15px;}
+    header .apikey{flex-wrap:wrap;gap:4px;width:100%;}
+    header .apikey label{display:none;}   /* 手机上隐藏"DeepSeek API Key"文字标签，只留输入框 */
+    header input[type=password], header input[type=text]{
+      width:100%;flex:1;min-width:0;
+    }
+    header .apikey button{padding:4px 8px;font-size:11px;}
+
+    .wordlab-grid{flex-direction:column;}
+    .wl-left,.wl-right{flex:1 1 100%;}
+    .wl-right{
+      position:static;
+      max-height:none;      /* 重置桌面端的高度限制，避免手机上滚动体验混乱 */
+      overflow-y:visible;
+    }
+
+    .hl-swatch{width:36px;height:36px;border-radius:8px;}
+
+    .wc-close{
+      width:32px;height:32px;
+      display:flex;align-items:center;justify-content:center;
+      font-size:18px;
+    }
+    .board-del{
+      width:32px;height:32px;
+      display:flex;align-items:center;justify-content:center;
+      font-size:18px;
+    }
+
+    main{padding:12px;}
+    #cardSearch{width:100%;}
+    .filter-bar{gap:6px;}
+    .tabs{gap:12px;padding:0 12px;}
+    .tab-btn{font-size:13px;padding:10px 2px;}
+  }
 </style>
 </head>
 <body>
 
 <header>
-  <div class="logo">📘 English Word Lab <span style="font-size:11px;color:#94a3b8;font-weight:400;">v20260706</span></div>
+  <div class="logo">📘 English Word Lab <span style="font-size:11px;color:#94a3b8;font-weight:400;">v20260707</span></div>
   <div class="apikey">
     <button class="btn secondary" id="backupBtn" style="padding:5px 10px;font-size:12px;">💾 备份</button>
     <button class="btn secondary" id="restoreBtn" style="padding:5px 10px;font-size:12px;">📥 恢复</button>
-    <input type="file" id="restoreFile" accept=".json" style="display:none">
+    <input type="file" id="restoreFile" accept=".json" style="display:none" autocomplete="off">
     <label for="apiKeyInput" style="font-size:13px;color:#64748b;">DeepSeek API Key</label>
-    <input type="password" id="apiKeyInput" placeholder="sk-...">
+    <input type="password" id="apiKeyInput" placeholder="sk-..." autocomplete="off">
   </div>
 </header>
 
@@ -792,6 +834,17 @@ $('#analyzedText').addEventListener('mouseup', () => {
   if(!text || !/[a-zA-Z]/.test(text) || !/\s/.test(text) || text.length > 120) return;
   if(!sel.anchorNode || !$('#analyzedText').contains(sel.anchorNode)) return;
   explainWord(text, '').catch(() => {});
+});
+/* 触屏没有 mouseup 拖选事件，对应 touchend；延迟一帧等选区稳定 */
+$('#analyzedText').addEventListener('touchend', () => {
+  if(activeHighlightColor !== null) return;
+  setTimeout(() => {
+    const sel = window.getSelection();
+    const text = sel ? sel.toString().replace(/\s+/g, ' ').trim() : '';
+    if(!text || !/[a-zA-Z]/.test(text) || !/\s/.test(text) || text.length > 120) return;
+    if(!sel.anchorNode || !$('#analyzedText').contains(sel.anchorNode)) return;
+    explainWord(text, '').catch(() => {});
+  }, 50);
 });
 
 function findSentence(fullText, word){
