@@ -297,6 +297,28 @@
     border-radius:10px;padding:10px 16px;margin-bottom:16px;
   }
   .review-stats b{color:#1d4ed8;}
+  .board-batch-progress{margin-bottom:10px;}
+  .board-batch-bar{height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;}
+  .board-batch-fill{height:100%;background:#2563eb;transition:width .2s;}
+  .board-batch-label{font-size:11.5px;color:#64748b;display:block;margin-top:4px;}
+
+  /* 截图模式：隐藏工具栏/按钮，只留词卡内容 */
+  body.screenshot-mode header,
+  body.screenshot-mode .tabs,
+  body.screenshot-mode #inputArea,
+  body.screenshot-mode #resultBar,
+  body.screenshot-mode #explainModeTabs,
+  body.screenshot-mode .board-toolbar,
+  body.screenshot-mode .board-del,
+  body.screenshot-mode .board-upgrade,
+  body.screenshot-mode .wc-close { display:none !important; }
+  body.screenshot-mode main { padding-top:8px; }
+  #exitScreenshotBtn{
+    position:fixed; top:12px; right:12px; z-index:9999; display:none;
+    background:#1e293b; color:#fff; border:none; border-radius:8px;
+    padding:8px 14px; font-size:13px; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.2);
+  }
+  body.screenshot-mode #exitScreenshotBtn{ display:block; }
   .review-mode-row{display:flex;gap:8px;justify-content:center;margin-bottom:14px;}
   #spellInput{
     width:100%;max-width:320px;padding:10px 14px;border:2px solid #cbd5e1;border-radius:10px;
@@ -331,7 +353,7 @@
 <body>
 
 <header>
-  <div class="logo">📘 English Word Lab</div>
+  <div class="logo">📘 English Word Lab <span style="font-size:11px;color:#94a3b8;font-weight:400;">v20260706</span></div>
   <div class="apikey">
     <button class="btn secondary" id="backupBtn" style="padding:5px 10px;font-size:12px;">💾 备份</button>
     <button class="btn secondary" id="restoreBtn" style="padding:5px 10px;font-size:12px;">📥 恢复</button>
@@ -392,7 +414,8 @@
           <div id="explainModeTabs" style="display:none;">
             <button class="mode-tab active" data-mode="detailed">Detailed</button>
             <button class="mode-tab" data-mode="brief">Brief · Board</button>
-            <label style="margin-left:auto;font-size:12px;color:#64748b;display:flex;align-items:center;gap:4px;cursor:pointer;" title="勾选后不调用 AI，用本地英英词典（WordNet）生成免费解释">
+            <button class="btn secondary" id="screenshotModeBtn" style="margin-left:auto;font-size:11px;padding:4px 10px;" title="临时隐藏工具栏和按钮，只留词卡内容，方便截图">📷 截图模式</button>
+            <label style="font-size:12px;color:#64748b;display:flex;align-items:center;gap:4px;cursor:pointer;" title="勾选后不调用 AI，用本地英英词典（WordNet）生成免费解释">
               <input type="checkbox" id="freeDictToggle"> 📖 免费词典模式
             </label>
           </div>
@@ -413,9 +436,17 @@
       <div class="filter-pill" data-filter="C1">C1</div>
       <div class="filter-pill" data-filter="C2">C2</div>
       <div class="spacer"></div>
+      <select class="material-select" id="cardSort" style="width:auto;margin:0;padding:6px 10px;">
+        <option value="latest">最新保存</option>
+        <option value="due">即将到期</option>
+        <option value="level">按等级 B1→C2</option>
+        <option value="alpha">按字母</option>
+      </select>
       <input type="text" id="cardSearch" placeholder="Search word or content...">
       <button class="btn secondary" id="exportBtn">Export .txt</button>
       <button class="btn secondary" id="ankiExportBtn">Export Anki</button>
+      <span id="storageInfo" style="font-size:11px;color:#94a3b8;"></span>
+      <button class="btn secondary" id="cleanCacheBtn" style="font-size:12px;padding:5px 10px;" title="清理解释缓存/搭配缓存等（不动卡片、材料、看板、复习记录）">🧹 清理缓存</button>
     </div>
     <div class="card-grid" id="cardGrid"></div>
   </section>
@@ -444,6 +475,8 @@
   </section>
 
 </main>
+
+<button id="exitScreenshotBtn" onclick="document.body.classList.remove('screenshot-mode')">✕ 退出截图模式</button>
 
 <!-- 离线美式音标词典（约12.6万词条，与本文件同目录；缺失时自动回退在线词典） -->
 <script src="ipa-dict-en.js" charset="utf-8"></script>
@@ -577,6 +610,11 @@ Use this exact format for every word or expression:
 
 let lastAnalyzedSourceText = '';
 
+/* 句子切分：不用 lookbehind（旧 Safari 解析即崩溃） */
+function splitIntoSentences(text){
+  return (text.match(/[^.!?]*[.!?]+["')\]]*|[^.!?]+$/g) || [text]);
+}
+
 /* 长文自动分段：按段落/句子边界切成 ~2200 字符的块，逐块分析后拼接 */
 function splitTextForAnalysis(text, maxLen){
   if(text.length <= maxLen) return [text];
@@ -585,7 +623,7 @@ function splitTextForAnalysis(text, maxLen){
   const pushCur = () => { if(cur.trim()) chunks.push(cur); cur = ''; };
   for(const p of text.split(/\n\n+/)){
     if(p.length > maxLen){
-      for(const s of p.split(/(?<=[.!?])\s+/)){
+      for(const s of splitIntoSentences(p)){
         if(cur.length + s.length + 1 > maxLen) pushCur();
         cur += (cur ? ' ' : '') + s;
       }
@@ -758,7 +796,7 @@ $('#analyzedText').addEventListener('mouseup', () => {
 
 function findSentence(fullText, word){
   // 按整词匹配定位来源句，避免 "run" 命中 "running" 所在句
-  const sentences = fullText.split(/(?<=[.!?])\s+/);
+  const sentences = splitIntoSentences(fullText);
   const esc = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   let re = null;
   try{ re = new RegExp('(?:^|[^A-Za-z])' + esc + '(?:[^A-Za-z]|$)', 'i'); }catch(e){}
@@ -883,6 +921,8 @@ async function lemmatizeWord(word){
   return word;
 }
 
+$('#screenshotModeBtn').addEventListener('click', () => document.body.classList.add('screenshot-mode'));
+
 $('#freeDictToggle').checked = localStorage.getItem('ewl_free_dict') === '1';
 $('#freeDictToggle').addEventListener('change', e => {
   localStorage.setItem('ewl_free_dict', e.target.checked ? '1' : '');
@@ -1005,7 +1045,7 @@ async function offlineAnalyze(){
   const okFreq = await ensureFreqRank();
   await ensureWnDict();   // 用于词组识别与生僻词判断，加载失败不阻塞
   if(!okFreq){
-    alert('词频文件 freq-rank-en.js 加载失败，请确认它和本页面在同一文件夹。');
+    alert('离线标注需要词频文件 freq-rank-en.js（本页面同文件夹）。\n\n获取方式：它在你的部署包 / GitHub 仓库（pjuiu/English-tool）里，下载后与本 HTML 放在一起即可。\n\n现在可以先用「Analyze (AI)」按钮（需 DeepSeek Key）。');
     btn.disabled = false; btn.textContent = '⚡ 离线标注（免费）';
     return;
   }
@@ -1201,8 +1241,8 @@ $('#allToBoardBtn').addEventListener('click', async () => {
   btn.disabled = true;
   const before = boardItems.length;
   let done = 0, failed = 0, firstError = '';
+  boardBatchState = { done: 0, total: list.length };
   for(const {w, l} of list){
-    btn.textContent = `加入中 ${++done}/${list.length}…`;
     try{
       const r = await explainWord(w, l);
       if(r === false){   // 离线词典未收录
@@ -1213,8 +1253,11 @@ $('#allToBoardBtn').addEventListener('click', async () => {
       failed++;
       if(!firstError) firstError = e.message;
     }
+    boardBatchState.done = ++done;
+    renderBoard();   // 刷新进度条（explainWord 内部也会 renderBoard，这里确保进度实时）
   }
   const added = boardItems.length - before;
+  boardBatchState = null;
   btn.textContent = '全部标注词 → 看板';
   btn.disabled = false;
   renderBoard();
@@ -1364,16 +1407,30 @@ function extractFirstExample(content) {
   return ex ? ex.replace(/^\d+[.)]\s+/, '') : (lines[0] || '');
 }
 
+let boardBatchState = null;   // {done, total} 批量加入进行中时显示进度条
+function boardBatchProgressHtml(){
+  if(!boardBatchState) return '';
+  const pct = Math.round(boardBatchState.done / boardBatchState.total * 100);
+  return `
+    <div class="board-batch-progress">
+      <div class="board-batch-bar"><div class="board-batch-fill" style="width:${pct}%;"></div></div>
+      <span class="board-batch-label">批量生成中 ${boardBatchState.done}/${boardBatchState.total}</span>
+    </div>`;
+}
+
 function renderBoard(){
   const main = $('#explainMain');
   if(boardItems.length === 0){
-    main.innerHTML = '<div class="panel-placeholder">Click words to build your board</div>';
+    main.innerHTML = boardBatchState
+      ? boardBatchProgressHtml() + '<div class="panel-placeholder">Click words to build your board</div>'
+      : '<div class="panel-placeholder">Click words to build your board</div>';
     return;
   }
 
   const levelEmoji = { B1:'🔵', B2:'🟢', C1:'🟡', C2:'🔴' };
 
   const toolbarHtml = `
+    ${boardBatchProgressHtml()}
     <div class="board-toolbar">
       <span class="board-count">${boardItems.length} word${boardItems.length > 1 ? 's' : ''}</span>
       <button id="copyBoardBtn" class="btn secondary" style="font-size:12px;padding:5px 12px;">Copy for Sharing</button>
@@ -1561,6 +1618,13 @@ function renderCards(){
   if(q){
     cards = cards.filter(c => c.word.toLowerCase().includes(q) || c.content.toLowerCase().includes(q));
   }
+  // 排序
+  const sort = $('#cardSort').value;
+  const lvlOrder = {B1:1, B2:2, C1:3, C2:4};
+  if(sort === 'due') cards.sort((a,b) => ((a.srs&&a.srs.due)||0) - ((b.srs&&b.srs.due)||0));
+  else if(sort === 'level') cards.sort((a,b) => (lvlOrder[a.level]||9) - (lvlOrder[b.level]||9));
+  else if(sort === 'alpha') cards.sort((a,b) => a.word.localeCompare(b.word));
+  updateStorageInfo();
   if(cards.length === 0){
     grid.innerHTML = '<div class="empty-state">No cards yet. Go analyze some words!</div>';
     return;
@@ -1572,6 +1636,7 @@ function renderCards(){
     return `
     <div class="word-card" data-id="${c.id}">
       <button class="wc-close" data-action="delete" data-id="${c.id}">✕</button>
+      <button class="wc-close" data-action="edit" data-id="${c.id}" style="right:32px;font-size:13px;" title="编辑解释内容">✎</button>
       <div class="wc-head">
         <span class="wc-word">${escapeHtml(c.word)}</span>
         <span class="ipa" data-ipa="${escapeHtml(c.word)}"></span>
@@ -1608,8 +1673,56 @@ function renderCards(){
   grid.querySelectorAll('[data-speak]').forEach(btn => {
     btn.addEventListener('click', () => speak(btn.dataset.speak));
   });
+  grid.querySelectorAll('[data-action="edit"]').forEach(el => {
+    el.addEventListener('click', () => editCard(el.dataset.id));
+  });
   attachAllIpa(grid);
 }
+
+/* 词卡编辑：AI 解释太长/不准时可直接修改 */
+function editCard(id){
+  const cardEl = document.querySelector(`.word-card[data-id="${id}"]`);
+  const c = getCards().find(x => x.id === id);
+  if(!cardEl || !c || cardEl.querySelector('.wc-edit-area')) return;
+  cardEl.innerHTML = `
+    <div style="font-weight:700;margin-bottom:8px;">${escapeHtml(c.word)} <span style="font-size:12px;color:#94a3b8;font-weight:400;">编辑解释（保留 🖼🧠💫 等标题行可维持排版）</span></div>
+    <textarea class="wc-edit-area" style="width:100%;min-height:220px;padding:10px;border:1px solid #93c5fd;border-radius:8px;font-size:13px;line-height:1.6;font-family:inherit;resize:vertical;">${escapeHtml(c.content)}</textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn" data-eact="save">保存</button>
+      <button class="btn secondary" data-eact="cancel">取消</button>
+    </div>`;
+  cardEl.querySelector('[data-eact="save"]').addEventListener('click', () => {
+    const cards = getCards();
+    const t = cards.find(x => x.id === id);
+    if(t){ t.content = cardEl.querySelector('.wc-edit-area').value; setCards(cards); }
+    // 同步看板里的同名卡
+    const b = boardItems.find(x => x.word.toLowerCase() === c.word.toLowerCase());
+    if(b){ b.content = cardEl.querySelector('.wc-edit-area').value; saveBoard(); }
+    renderCards();
+  });
+  cardEl.querySelector('[data-eact="cancel"]').addEventListener('click', renderCards);
+}
+
+/* 存储用量：localStorage 约 5MB，接近上限提醒清理 */
+function updateStorageInfo(){
+  let bytes = 0;
+  for(let i = 0; i < localStorage.length; i++){
+    const k = localStorage.key(i);
+    bytes += (k.length + (localStorage.getItem(k) || '').length) * 2;
+  }
+  const mb = bytes / 1048576;
+  const el = $('#storageInfo');
+  el.textContent = `存储 ${mb.toFixed(1)}/5MB`;
+  el.style.color = mb > 4 ? '#dc2626' : '#94a3b8';
+  if(mb > 4) el.textContent += ' ⚠️ 请清理缓存';
+}
+$('#cleanCacheBtn').addEventListener('click', () => {
+  if(!confirm('清理可再生的缓存（AI解释缓存/搭配/词典查询记录）？\n卡片、材料、看板、复习记录不受影响。')) return;
+  ['ewl_explain_cache','ewl_datamuse','ewl_dict_exists','ewl_phonetics'].forEach(k => localStorage.removeItem(k));
+  updateStorageInfo();
+  alert('已清理 ✓');
+});
+$('#cardSort').addEventListener('change', renderCards);
 
 $('#exportBtn').addEventListener('click', () => {
   const cards = getCards();
@@ -1784,6 +1897,23 @@ function logReview(){
   log[k] = (log[k] || 0) + 1;
   try{ localStorage.setItem('ewl_review_log', JSON.stringify(log)); }catch(e){}
 }
+/* 近 7 天复习趋势柱状图 */
+function weekChartHtml(){
+  const log = getReviewLog();
+  const days = [];
+  for(let i = 6; i >= 0; i--){
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    days.push({ n: log[dayKey(d)] || 0, lbl: (d.getMonth()+1) + '/' + d.getDate() });
+  }
+  const max = Math.max(...days.map(x => x.n), 1);
+  return `<div style="display:flex;gap:8px;align-items:flex-end;justify-content:center;margin-bottom:14px;">${
+    days.map(x => `<div style="text-align:center;font-size:9.5px;color:#94a3b8;">
+      <div style="font-size:10px;color:${x.n ? '#1d4ed8' : '#cbd5e1'};">${x.n || ''}</div>
+      <div style="width:26px;height:${Math.round(x.n / max * 36) + 3}px;background:${x.n ? '#3b82f6' : '#e2e8f0'};border-radius:3px;margin:1px auto 2px;"></div>${x.lbl}</div>`).join('')
+  }</div>`;
+}
+
 function reviewStatsHtml(){
   const log = getReviewLog();
   const todayCount = log[dayKey(new Date())] || 0;
@@ -1933,6 +2063,7 @@ function renderReview(){
     area.innerHTML = `
       <div class="review-stage">
         ${reviewStatsHtml()}
+        ${weekChartHtml()}
         ${reviewModeSwitchHtml()}
         <div class="review-card">
           <div style="font-size:16px;font-weight:600;margin-bottom:8px;">${doneMsg}</div>
@@ -1956,6 +2087,7 @@ function renderReview(){
     area.innerHTML = `
       <div class="review-stage">
         ${reviewStatsHtml()}
+        ${weekChartHtml()}
         ${reviewModeSwitchHtml()}
         <div class="review-progress">${reviewIdx + 1} / ${reviewQueue.length}</div>
         <div class="review-card">
@@ -2000,6 +2132,7 @@ function renderReview(){
   area.innerHTML = `
     <div class="review-stage">
       ${reviewStatsHtml()}
+      ${weekChartHtml()}
       ${reviewModeSwitchHtml()}
       <div class="review-progress">${reviewIdx + 1} / ${reviewQueue.length}</div>
       <div class="review-card">
@@ -2008,11 +2141,11 @@ function renderReview(){
         ${c.sourceSentence ? `<div class="review-source">"${escapeHtml(c.sourceSentence)}"</div>` : ''}
         <div class="review-answer" id="reviewAnswer">${formatExplainHtml(c.content)}</div>
         <div class="review-actions" id="reviewShowRow">
-          <button class="btn" id="showAnswerBtn">显示解释</button>
+          <button class="btn" id="showAnswerBtn">显示解释 <small>空格</small></button>
         </div>
         <div class="review-actions" id="reviewGradeRow" style="display:none;">
-          <button class="btn forgot" id="forgotBtn">忘了 😵</button>
-          <button class="btn remembered" id="rememberedBtn">记得 ✓</button>
+          <button class="btn forgot" id="forgotBtn">忘了 😵 <small>1</small></button>
+          <button class="btn remembered" id="rememberedBtn">记得 ✓ <small>2/Enter</small></button>
         </div>
       </div>
     </div>`;
@@ -2027,6 +2160,26 @@ function renderReview(){
   $('#forgotBtn').addEventListener('click', () => gradeReview(c, false));
   $('#rememberedBtn').addEventListener('click', () => gradeReview(c, true));
 }
+
+/* Review 键盘快捷键：Space 显示答案 · 1 忘了 · 2/Enter 记得 · 拼写模式 Enter 提交
+   仅在 Review 面板可见且焦点不在文本输入框时生效 */
+document.addEventListener('keydown', e => {
+  const panel = $('#panel-review');
+  if(!panel || !panel.classList.contains('active')) return;
+  const tag = (e.target.tagName || '').toLowerCase();
+  if(tag === 'input' || tag === 'textarea') return;   // 拼写输入框自己处理 Enter
+  const showRow = $('#reviewShowRow');
+  const gradeRow = $('#reviewGradeRow');
+  if(showRow && gradeRow){
+    if(e.code === 'Space' && showRow.style.display !== 'none'){
+      e.preventDefault();
+      $('#showAnswerBtn').click();
+    } else if(gradeRow.style.display !== 'none'){
+      if(e.key === '1'){ e.preventDefault(); $('#forgotBtn').click(); }
+      else if(e.key === '2' || e.key === 'Enter'){ e.preventDefault(); $('#rememberedBtn').click(); }
+    }
+  }
+});
 
 function gradeReview(card, remembered){
   const cards = getCards();
@@ -2158,10 +2311,12 @@ function renderMaterials(){
 renderMaterials();
 renderCards();
 restoreAnalysis();
-// 恢复上次的词汇看板
+// 恢复上次的词汇看板：直接切到 Brief·Board 并渲染（不用等用户点标签）
 if(boardItems.length > 0){
+  explainMode = 'brief';
+  $$('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === 'brief'));
   $('#explainModeTabs').style.display = 'flex';
-  if(explainMode === 'brief') renderBoard();
+  renderBoard();
 }
 // 接收影子跟读实验室传来的查词请求
 try{
