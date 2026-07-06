@@ -610,7 +610,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260706</span>
+    <span>Shadow Reading Lab · v20260706b</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -709,6 +709,7 @@
       <button class="btn" id="pr-mine" onclick="practicePlayMine()" disabled>▶ 我的</button>
       <button class="btn" id="pr-cmp" onclick="practiceCompare()" disabled>🔁 对比 <small>C</small></button>
       <button class="btn" id="pr-score-btn" onclick="scorePractice()" disabled title="用本地 Whisper 识别你的录音，和原句逐词对比打分（免费）">📊 评分</button>
+      <button class="btn" id="pr-transcribe" onclick="transcribeCurrentSegment()" style="display:none;background:var(--accent2);color:#fff;border-color:var(--accent2);" title="只转写这个片段（1-3分钟，免费）：生成后片段内即可逐句跟读、逐词高亮、评分">📝 转写此片段</button>
       <button class="btn" onclick="practicePrev()">⏮ 上一句 <small>P</small></button>
       <button class="btn" onclick="practiceNext()">⏭ 下一句 <small>N</small></button>
     </div>
@@ -2867,7 +2868,14 @@ function renderPractice() {
   document.getElementById('pr-score-btn').disabled = true;
   document.getElementById('pr-score-result').style.display = 'none';
   document.getElementById('pr-waves').style.display = 'none';
-  setPracticeStatus('流程：空格听原句 → R 跟读 → C 对比 / 📊 评分 → 满意后 N 下一句');
+  // 片段练习：显示"转写此片段"按钮；片段没有字幕时给出明确指引
+  const isSeg = practice.cutIdx != null;
+  document.getElementById('pr-transcribe').style.display = isSeg ? '' : 'none';
+  if (isSeg && (!practice.text || !/[A-Za-z]/.test(practice.text))) {
+    setPracticeStatus('⚠️ 这个片段还没有字幕 → 点「📝 转写此片段」（1–3 分钟，免费）生成后即可逐句跟读、逐词高亮、评分');
+  } else {
+    setPracticeStatus('流程：空格听原句 → R 跟读 → C 对比 / 📊 评分 → 满意后 N 下一句');
+  }
   panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
@@ -2876,10 +2884,13 @@ function setPracticeStatus(m) { document.getElementById('practice-status').textC
 function practicePlay() {
   if (!practice || !ws) return;
   stopAllPlayback();
-  abState = { end: practice.end, cb: () => setPracticeStatus('原句播完 → 按 R 开始跟读录音') };
+  // 无字幕片段：始终保留转写指引，不被播放状态覆盖
+  const noText = practice.cutIdx != null && (!practice.text || !/[A-Za-z]/.test(practice.text));
+  const hint = '⚠️ 此片段无字幕 → 点「📝 转写此片段」（免费）生成后可逐句跟读、评分';
+  abState = { end: practice.end, cb: () => setPracticeStatus(noText ? hint : '原句播完 → 按 R 开始跟读录音') };
   seekSec(practice.start);
   ws.play();
-  setPracticeStatus('▶ 播放原句中…');
+  setPracticeStatus(noText ? '▶ 播放中… ' + hint : '▶ 播放原句中…');
 }
 
 async function practiceRecord() {
@@ -2978,6 +2989,96 @@ function exitPractice() {
   if (ws && ws.isPlaying()) ws.pause();
   document.getElementById('practice-panel').style.display = 'none';
   placePracticePanel();   // 面板归位
+}
+
+// ═══════════════════════════════════════════════════════
+//  SEGMENT TRANSCRIBE (只转写一个片段：快，转完立即逐句练)
+// ═══════════════════════════════════════════════════════
+let segTransBusy = false;
+async function doSegmentTranscribe(startSec, endSec, cutIdx) {
+  if (segTransBusy) { showToast('已有片段在转写中，请稍候'); return null; }
+  segTransBusy = true;
+  try {
+    setTranscribeStatus(`⏳ 正在转写片段 ${fmtTime(startSec)}–${fmtTime(endSec)}（首次需下载模型）…`);
+    const asr = await ensureLocalWhisper(p => {
+      if (p && p.status === 'progress' && p.file && p.file.endsWith('.onnx')) {
+        setTranscribeStatus(`⏳ 下载模型 ${Math.round(p.progress || 0)}%…`);
+      }
+    });
+    const audio = await get16kAudio();
+    const SR = 16000;
+    const a = Math.max(0, Math.floor(startSec * SR));
+    const b = Math.min(audio.length, Math.ceil(endSec * SR));
+    setTranscribeStatus(`⏳ 片段转写中（${Math.round((endSec - startSec) / 60 * 10) / 10} 分钟音频）…`);
+    let out;
+    if (wordTsSupported) {
+      try {
+        out = await asr(audio.subarray(a, b), { chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'word' });
+      } catch (e1) {
+        wordTsSupported = false;
+        out = await asr(audio.subarray(a, b), { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+      }
+    } else {
+      out = await asr(audio.subarray(a, b), { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+    }
+    // 时间戳平移到全片绝对时间
+    const chunks = (out.chunks || []).filter(c => c.text && c.text.trim()).map(c => ({
+      text: c.text,
+      timestamp: [((c.timestamp && c.timestamp[0]) || 0) + startSec, ((c.timestamp && c.timestamp[1]) || 0.3) + startSec],
+    }));
+    let sents = wordsToSentences(chunks, endSec);
+    if (!wordTsSupported) sents.forEach(s => { delete s.words; });
+    if (sents.length === 0) {
+      setTranscribeStatus('✕ 这个片段没有识别到语音');
+      showToast('没有识别到语音（可能是纯音乐/无对白片段）');
+      return null;
+    }
+    // 合并进全局字幕：替换该区间内原有的句子
+    subtitles = subtitles
+      .filter(s => s.end <= startSec + 0.05 || s.start >= endSec - 0.05)
+      .concat(sents)
+      .sort((x, y) => x.start - y.start);
+    saveSubtitles();
+    renderSubtitleList();
+    // 片段带上文本，剪切列表可辨认
+    if (cutIdx != null && cutSegments[cutIdx]) {
+      cutSegments[cutIdx].text = sents.map(s => s.text).join(' ');
+      saveCuts();
+      renderCutList();
+    }
+    setTranscribeStatus(`✓ 片段转写完成：${sents.length} 句`);
+    showToast(`✓ 转写出 ${sents.length} 句，可以逐句跟读了`);
+    return sents;
+  } catch (e) {
+    setTranscribeStatus('✕ 片段转写失败：' + e.message);
+    showToast('片段转写失败：' + e.message, 4500);
+    return null;
+  } finally {
+    segTransBusy = false;
+  }
+}
+
+/* 练习面板里的「转写此片段」：转完直接进入片段第一句的逐句练习 */
+async function transcribeCurrentSegment() {
+  if (!practice) return;
+  const { start, end, cutIdx } = practice;
+  const btn = document.getElementById('pr-transcribe');
+  btn.disabled = true;
+  btn.textContent = '⏳ 转写中…';
+  const sents = await doSegmentTranscribe(start, end, cutIdx);
+  btn.disabled = false;
+  btn.textContent = '📝 转写此片段';
+  if (sents && sents.length) {
+    const firstIdx = subtitles.findIndex(s => s.start >= start - 0.1 && s.start < end);
+    if (firstIdx >= 0) startPractice(firstIdx);   // 无缝切入逐句跟读
+  }
+}
+
+/* 剪切列表行上的 📝 按钮 */
+async function transcribeCutSeg(i) {
+  const c = cutSegments[i];
+  if (!c) return;
+  await doSegmentTranscribe(c.start, c.end, i);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -3478,6 +3579,7 @@ function renderCutList() {
       </div>
       <div class="seg-btns">
         <button class="btn" style="background:var(--accent);color:#fff;border-color:var(--accent);" onclick="startPracticeSeg(${i})" title="跟读这个片段">🎤 跟读</button>
+        ${c.text ? '' : `<button class="btn" onclick="transcribeCutSeg(${i})" title="只转写这个片段（1-3分钟，免费），生成后可逐句跟读">📝 转写</button>`}
         <button class="btn" onclick="playCut(${i})">▶ 播放</button>
         <button class="btn ${activeCutLoop === i ? 'active' : ''}" onclick="loopCut(${i})">🔁 循环</button>
         <button class="btn" onclick="exportCutFile(${i})" title="导出为文件（无损快剪）">⬇</button>
