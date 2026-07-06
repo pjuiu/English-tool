@@ -112,7 +112,10 @@
     padding-bottom: 16px;
   }
   /* 字幕列表 = 主操作区（视频正下方，全宽），占据剩余视野 */
-  #main-left #subtitle-list-wrap { max-height: 52vh; }
+  #main-left #subtitle-list-wrap { max-height: 62vh; }
+  /* 练过的句子：左侧绿条 + 微绿底，一眼区分 */
+  .sub-item.practiced { border-left: 3px solid var(--accent); background: rgba(138,158,138,0.07); }
+  .sub-item.practiced.active { background: var(--accent-light); }
   @media (max-width: 1020px) {
     #main.open { display: block; }
     #main-right { width: auto; position: static; max-height: none; overflow: visible; }
@@ -610,7 +613,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260706b</span>
+    <span>Shadow Reading Lab · v20260706c</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -739,6 +742,8 @@
       <button class="btn" onclick="replayCurrentSentence()">🔂 重播本句</button>
       <button class="btn" onclick="nextSentence()">⏭ 下一句</button>
       <button class="btn" style="background:var(--accent);color:#fff;border-color:var(--accent);" onclick="enterPracticeHere()" title="进入逐句跟读练习（听→录→评分→下一句）">🎤 逐句跟读</button>
+      <button class="btn" id="auto-shadow-btn" onclick="toggleAutoShadow()" title="全自动影子跟读：播一句→自动录你跟读→自动下一句，全程免手动">🤖 自动跟读</button>
+      <span id="auto-status" style="font-size:12px;color:var(--text-muted);"></span>
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">倍速</span>
@@ -771,6 +776,84 @@
 </div><!-- /main-left -->
 
 <div id="main-right">
+
+  <!-- Transcribe Panel -->
+  <div id="transcribe-panel">
+    <h3>字幕生成</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <button class="btn" id="local-transcribe-btn" onclick="doLocalTranscribe()" title="浏览器内本地运行 Whisper 模型，零费用；首次使用需下载模型（仅一次）">🆓 本地转写（免费·英文）</button>
+      <button class="btn" id="transcribe-btn" onclick="doTranscribe()">▶ API 转写</button>
+      <select class="mini-select" id="whisper-model-sel" onchange="localStorage.setItem('shadow_whisper_model', this.value)" title="tiny 快、base 准；均为一次性下载后离线可用">
+        <option value="tiny">tiny 模型（40MB·快）</option>
+        <option value="base">base 模型（80MB·更准）</option>
+      </select>
+      <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;" title="上传素材后自动开始生成字幕（免费本地转写）">
+        <input type="checkbox" id="auto-transcribe-chk" onchange="localStorage.setItem('shadow_auto_transcribe', this.checked ? '1' : '')"> 上传后自动生成
+      </label>
+      <button class="btn" onclick="loadSubtitleFile()">导入 SRT / VTT / JSON</button>
+      <button class="btn" onclick="exportSRT()">⬇ 导出 SRT</button>
+      <button class="btn" onclick="doSilenceSplit()" title="不转写也能练：按静音间隙自动把音频切成小段，加入选段剪切列表">🔇 静音切分</button>
+      <select class="mini-select" id="vad-mode-sel" title="影视剧/综艺有背景音乐和音效，需要更高的人声判定阈值">
+        <option value="tv">影视剧/带背景音</option>
+        <option value="clean">播客/干净人声</option>
+      </select>
+      <input type="file" id="sub-file-input" accept=".srt,.vtt,.json" style="display:none" onchange="onSubFileLoad(event)" />
+      <span id="transcribe-status"></span>
+    </div>
+  </div>
+
+  <!-- Region Info -->
+  <div id="region-info">
+    已选区间：<span id="region-start-disp">—</span> → <span id="region-end-disp">—</span>
+    <button class="btn" onclick="saveCurrentRegion()">💾 保存片段</button>
+    <button class="btn active" id="loop-btn" onclick="toggleLoop()">🔁 循环播放</button>
+    <select class="mini-select" id="loop-limit-sel" onchange="loopsDone=0" title="循环多少次后自动停">
+      <option value="0">循环 ∞</option>
+      <option value="3">循环 3 次</option>
+      <option value="5">循环 5 次</option>
+      <option value="10">循环 10 次</option>
+    </select>
+    <button class="btn" onclick="clearRegion()">✕ 清除选区</button>
+  </div>
+
+  <!-- Cut Segments -->
+  <div id="cut-panel">
+    <h3>✂ 选段剪切（切成小段循环跟读，⬇ 可导出为文件） <span id="cut-status" style="font-weight:400;"></span></h3>
+    <div class="cut-row">
+      <span class="ctrl-label">自动等分</span>
+      <button class="btn" onclick="splitEqual(3)">每 3 分钟</button>
+      <button class="btn" onclick="splitEqual(5)">每 5 分钟</button>
+      <button class="btn" onclick="splitEqual(10)">每 10 分钟</button>
+      <input type="number" id="cut-min" value="3" min="0.5" step="0.5" />
+      <button class="btn" onclick="splitEqual()">按输入等分</button>
+    </div>
+    <div class="cut-row">
+      <span class="ctrl-label">手动打点</span>
+      <button class="btn" onclick="setCutMark('a')">[ 标记起点</button>
+      <button class="btn" onclick="setCutMark('b')">标记终点 ]</button>
+      <span id="cut-mark-info">起点 — · 终点 —</span>
+      <button class="btn" onclick="addCutFromMarks()">＋ 加入列表</button>
+      <button class="btn" onclick="addCutFromRegion()">＋ 当前选区加入</button>
+      <button class="btn" onclick="clearCuts()" style="margin-left:auto;">清空列表</button>
+    </div>
+    <div class="cut-row" style="font-size:12px;color:var(--text-muted);">
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="横屏视频导出为 1080×1920 竖屏（上下黑边），适合小红书；需重编码，3分钟片段约等 5-15 分钟">
+        <input type="checkbox" id="cut-vertical"> 📱 导出为小红书竖屏 9:16（慢）
+      </label>
+      <span style="margin-left:auto;">大视频（&gt;500MB）剪切/竖屏烧字幕请用 shadow_reader 完整版（启动.bat）</span>
+    </div>
+    <div id="cut-list"></div>
+  </div>
+
+  <!-- Shadow Recording -->
+  <div id="record-panel">
+    <h3>跟读录音（选好区间 → 听原声 → 录自己 → 对比）</h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+      <button class="btn" id="rec-btn" onclick="toggleRecord()">🎙 开始录音</button>
+      <span style="font-size:12px;color:var(--text-muted);">录音自动保存在本机，下次打开同一文件可回放</span>
+    </div>
+    <div id="rec-list"></div>
+  </div>
 
   <!-- 播放与字幕设置 -->
   <div id="sub-mode-wrap">
@@ -809,31 +892,6 @@
     <div id="translate-status" style="font-size:12px;color:var(--text-muted);margin-top:6px;"></div>
   </div>
 
-  <!-- Transcribe Panel -->
-  <div id="transcribe-panel">
-    <h3>字幕生成</h3>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-      <button class="btn" id="local-transcribe-btn" onclick="doLocalTranscribe()" title="浏览器内本地运行 Whisper 模型，零费用；首次使用需下载模型（仅一次）">🆓 本地转写（免费·英文）</button>
-      <button class="btn" id="transcribe-btn" onclick="doTranscribe()">▶ API 转写</button>
-      <select class="mini-select" id="whisper-model-sel" onchange="localStorage.setItem('shadow_whisper_model', this.value)" title="tiny 快、base 准；均为一次性下载后离线可用">
-        <option value="tiny">tiny 模型（40MB·快）</option>
-        <option value="base">base 模型（80MB·更准）</option>
-      </select>
-      <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;" title="上传素材后自动开始生成字幕（免费本地转写）">
-        <input type="checkbox" id="auto-transcribe-chk" onchange="localStorage.setItem('shadow_auto_transcribe', this.checked ? '1' : '')"> 上传后自动生成
-      </label>
-      <button class="btn" onclick="loadSubtitleFile()">导入 SRT / VTT / JSON</button>
-      <button class="btn" onclick="exportSRT()">⬇ 导出 SRT</button>
-      <button class="btn" onclick="doSilenceSplit()" title="不转写也能练：按静音间隙自动把音频切成小段，加入选段剪切列表">🔇 静音切分</button>
-      <select class="mini-select" id="vad-mode-sel" title="影视剧/综艺有背景音乐和音效，需要更高的人声判定阈值">
-        <option value="tv">影视剧/带背景音</option>
-        <option value="clean">播客/干净人声</option>
-      </select>
-      <input type="file" id="sub-file-input" accept=".srt,.vtt,.json" style="display:none" onchange="onSubFileLoad(event)" />
-      <span id="transcribe-status"></span>
-    </div>
-  </div>
-
   <!-- Waveform -->
   <div id="waveform-wrap">
     <h3>🌊 波形</h3>
@@ -843,55 +901,6 @@
       <input type="range" id="zoom-slider" min="0" max="400" value="0" oninput="applyZoom(this.value)" />
       <button class="btn" id="gen-wave-btn" style="display:none;" onclick="waveformFallback(true)" title="大文件默认不解码（秒开）；点此提取音频生成真实波形">🌊 生成真实波形</button>
     </div>
-  </div>
-
-  <!-- Region Info -->
-  <div id="region-info">
-    已选区间：<span id="region-start-disp">—</span> → <span id="region-end-disp">—</span>
-    <button class="btn" onclick="saveCurrentRegion()">💾 保存片段</button>
-    <button class="btn active" id="loop-btn" onclick="toggleLoop()">🔁 循环播放</button>
-    <select class="mini-select" id="loop-limit-sel" onchange="loopsDone=0" title="循环多少次后自动停">
-      <option value="0">循环 ∞</option>
-      <option value="3">循环 3 次</option>
-      <option value="5">循环 5 次</option>
-      <option value="10">循环 10 次</option>
-    </select>
-    <button class="btn" onclick="clearRegion()">✕ 清除选区</button>
-  </div>
-
-  <!-- Cut Segments -->
-  <div id="cut-panel">
-    <h3>✂ 选段剪切（切成小段循环跟读，⬇ 可导出为文件） <span id="cut-status" style="font-weight:400;"></span></h3>
-    <div class="cut-row">
-      <span class="ctrl-label">自动等分</span>
-      <button class="btn" onclick="splitEqual(3)">每 3 分钟</button>
-      <button class="btn" onclick="splitEqual(5)">每 5 分钟</button>
-      <button class="btn" onclick="splitEqual(10)">每 10 分钟</button>
-      <input type="number" id="cut-min" value="3" min="0.5" step="0.5" />
-      <button class="btn" onclick="splitEqual()">按输入等分</button>
-    </div>
-    <div class="cut-row">
-      <span class="ctrl-label">手动打点</span>
-      <button class="btn" onclick="setCutMark('a')">[ 标记起点</button>
-      <button class="btn" onclick="setCutMark('b')">标记终点 ]</button>
-      <span id="cut-mark-info">起点 — · 终点 —</span>
-      <button class="btn" onclick="addCutFromMarks()">＋ 加入列表</button>
-      <button class="btn" onclick="addCutFromRegion()">＋ 当前选区加入</button>
-      <button class="btn" onclick="clearCuts()" style="margin-left:auto;">清空列表</button>
-    </div>
-    <div id="cut-list"></div>
-  </div>
-
-  <!-- Shadow Recording -->
-  <div id="record-panel">
-    <h3>跟读录音（选好区间 → 听原声 → 录自己 → 对比）</h3>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
-      <button class="btn" id="rec-btn" onclick="toggleRecord()">🎙 开始录音</button>
-      <button class="btn" id="auto-shadow-btn" onclick="toggleAutoShadow()">🤖 自动跟读（播一句录一句）</button>
-      <span id="auto-status" style="font-size:12px;color:var(--text-muted);"></span>
-      <span style="font-size:12px;color:var(--text-muted);">录音自动保存在本机，下次打开同一文件可回放</span>
-    </div>
-    <div id="rec-list"></div>
   </div>
 
   <!-- Saved Segments -->
@@ -963,15 +972,21 @@ function findSubIdxAt(t) {
 }
 let activeRowEl = null;   // 当前高亮行（避免每次全列表遍历）
 
-/* 词级时间：没有精确数据时按词长比例估算（导入 SRT 的情况） */
+/* 词级时间：没有精确数据时按音节数估算（比字符长度准——
+   through 是1音节但7个字母，idea 是3音节只有4个字母） */
+function sylCount(w) {
+  const m = w.toLowerCase().replace(/e$/, '').match(/[aeiouy]+/g);
+  return Math.max(m ? m.length : 1, 1);
+}
 function ensureWords(s) {
   if (s.words && s.words.length) return s.words;
   const toks = s.text.split(/\s+/).filter(Boolean);
   const dur = Math.max((s.end - s.start), 0.3);
-  const total = toks.reduce((a, w) => a + w.length + 1.5, 0);
+  const weights = toks.map(w => sylCount(w) + 0.6);   // 0.6≈词间隙固定开销
+  const total = weights.reduce((a, b) => a + b, 0);
   let t = s.start;
-  s.words = toks.map(w => {
-    const d = dur * (w.length + 1.5) / total;
+  s.words = toks.map((w, i) => {
+    const d = dur * weights[i] / total;
     const o = { w, s: t, e: t + d };
     t += d;
     return o;
@@ -1095,11 +1110,12 @@ let idb = null;
 function openIdb() {
   return new Promise((resolve, reject) => {
     if (idb) return resolve(idb);
-    const rq = indexedDB.open('shadow_lab', 2);
+    const rq = indexedDB.open('shadow_lab', 3);
     rq.onupgradeneeded = () => {
       const db = rq.result;
       if (!db.objectStoreNames.contains('recordings')) db.createObjectStore('recordings', { keyPath: 'id', autoIncrement: true });
       if (!db.objectStoreNames.contains('handles')) db.createObjectStore('handles', { keyPath: 'id', autoIncrement: true });
+      if (!db.objectStoreNames.contains('subs')) db.createObjectStore('subs', { keyPath: 'fk' });   // 字幕：localStorage 5MB 太小且满时静默丢
     };
     rq.onsuccess = () => { idb = rq.result; resolve(idb); };
     rq.onerror = () => reject(rq.error);
@@ -1189,21 +1205,28 @@ function loadFile(file) {
   document.getElementById('main').classList.add('open');
   initWaveSurfer(file);
   subtitles = [];
-  const cached = localStorage.getItem(subsKey());
-  if (cached) {
-    try { subtitles = cleanSubtitles(JSON.parse(cached) || []); } catch (e) { subtitles = []; }
-  }
-  if (subtitles.length > 0) {
-    setTranscribeStatus(`✓ 已恢复该文件上次的字幕（${subtitles.length} 句），无需重新转写`);
-  } else if (localStorage.getItem('shadow_auto_transcribe') === '1') {
-    // 自动生成字幕模式：上传即转写（像常见跟读 App 一样）
-    setTranscribeStatus('🤖 自动生成字幕已开启，即将开始本地转写…');
-    setTimeout(() => { if (subtitles.length === 0) doLocalTranscribe(); }, 800);
-  } else if (isVideoFile(file)) {
-    setTranscribeStatus('提示：画面里烧录的字幕无法直接读取。点「🆓 本地转写」自动生成可点句跳转的字幕（勾选旁边的选项可每次自动）；已有 .srt 文件就用「导入字幕」。');
-  } else {
-    setTranscribeStatus('');
-  }
+  const fkLoading = subsKey();
+  (async () => {
+    let restored = await idbGetSubs(fkLoading);
+    if (!restored) {
+      try { restored = JSON.parse(localStorage.getItem(fkLoading) || 'null'); } catch (e) {}
+    }
+    if (subsKey() !== fkLoading) return;   // 期间换了文件
+    if (restored && restored.length) {
+      subtitles = cleanSubtitles(restored);
+      saveSubtitles();   // 迁移进 IndexedDB
+      setTranscribeStatus(`✓ 已恢复该文件上次的字幕（${subtitles.length} 句），无需重新转写`);
+      renderSubtitleList();
+    } else if (localStorage.getItem('shadow_auto_transcribe') === '1') {
+      // 自动生成字幕模式：上传即转写（像常见跟读 App 一样）
+      setTranscribeStatus('🤖 自动生成字幕已开启，即将开始本地转写…');
+      setTimeout(() => { if (subtitles.length === 0) doLocalTranscribe(); }, 500);
+    } else if (isVideoFile(file)) {
+      setTranscribeStatus('提示：画面里烧录的字幕无法直接读取。点「🆓 本地转写」自动生成可点句跳转的字幕（勾选旁边的选项可每次自动）；已有 .srt 文件就用「导入字幕」。');
+    } else {
+      setTranscribeStatus('');
+    }
+  })();
   if (autoShadowOn) stopAutoShadow();
   if (practice) exitPractice();
   waveformFallbackTried = false;
@@ -1617,6 +1640,35 @@ function fmtTime(s) {
 //  接口位置：doTranscribeAPI(file) → [{start,end,text}]
 //  替换此函数以对接任意 Whisper 兼容 API
 // ═══════════════════════════════════════════════════════
+/* 提取压缩音轨供 API 上传：mp3 48kbps 单声道（30分钟≈10MB）；mp3 编不了则回退 16k WAV */
+async function extractAudioForAPI() {
+  setTranscribeStatus('⏳ 正在提取压缩音轨（首次需下载剪辑引擎约 31MB）…');
+  const ff = await ensureFFmpeg();
+  const ext = ((currentFileName || 'x.mp4').match(/\.[^.]+$/) || ['.mp4'])[0].toLowerCase();
+  const inName = 'input' + ext;
+  if (ffWrittenKey !== fileKey()) {
+    setTranscribeStatus(`⏳ 载入文件到引擎（${formatSize(currentFile.size)}）…`);
+    await ff.writeFile(inName, await FFmpegUtil.fetchFile(currentFile));
+    ffWrittenKey = fileKey();
+  }
+  setTranscribeStatus('⏳ 压缩音轨中…');
+  try {
+    await ff.exec(['-i', inName, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '48k', '-f', 'mp3', 'api-audio.mp3']);
+    const data = await ff.readFile('api-audio.mp3');
+    try { await ff.deleteFile('api-audio.mp3'); } catch (e) {}
+    if (!data || data.length < 1000) throw new Error('mp3 输出为空');
+    return new File([data], 'audio.mp3', { type: 'audio/mpeg' });
+  } catch (e1) {
+    // 回退：16k 单声道 WAV（约 2MB/分钟，短音频够用）
+    await ff.exec(['-i', inName, '-vn', '-ac', '1', '-ar', '16000', '-f', 'wav', 'api-audio.wav']);
+    const data = await ff.readFile('api-audio.wav');
+    try { await ff.deleteFile('api-audio.wav'); } catch (e) {}
+    const f = new File([data], 'audio.wav', { type: 'audio/wav' });
+    if (f.size > 24 * 1024 * 1024) throw new Error('提取的 WAV 仍超 25MB（mp3 编码器不可用）');
+    return f;
+  }
+}
+
 async function doTranscribe() {
   if (!currentFile) return;
   const key = getWhisperKey();
@@ -1625,13 +1677,25 @@ async function doTranscribe() {
     document.getElementById('api-panel').style.display = 'block';
     return;
   }
-  if (currentFile.size > 25 * 1024 * 1024) {
-    if (!confirm(`当前文件 ${formatSize(currentFile.size)}，超过 OpenAI Whisper 的 25MB 上限，官方接口会拒绝。\n建议先压缩为较低码率的 MP3。\n\n仍要尝试上传吗？（自建/中转接口可能支持更大文件）`)) return;
+  document.getElementById('transcribe-btn').disabled = true;
+  // 大文件/视频：先在浏览器内提取压缩音轨（30分钟视频 → 约7MB mp3），绕过 25MB 上传限制
+  let uploadFile = currentFile;
+  if (currentFile.size > 24 * 1024 * 1024 || isVideoFile(currentFile)) {
+    try {
+      uploadFile = await extractAudioForAPI();
+      setTranscribeStatus(`✓ 音轨已提取（${formatSize(uploadFile.size)}），开始上传…`);
+    } catch (ex) {
+      if (currentFile.size > 25 * 1024 * 1024 &&
+          !confirm(`音轨提取失败（${ex.message}），原文件 ${formatSize(currentFile.size)} 超过 25MB 上限，官方接口会拒绝。\n仍要直接上传原文件吗？`)) {
+        document.getElementById('transcribe-btn').disabled = false;
+        setTranscribeStatus('已取消');
+        return;
+      }
+    }
   }
   setTranscribeStatus('⏳ 正在上传并转写，请稍候…');
-  document.getElementById('transcribe-btn').disabled = true;
   try {
-    const segs = await doTranscribeAPI(currentFile, key, getWhisperUrl());
+    const segs = await doTranscribeAPI(uploadFile, key, getWhisperUrl());
     subtitles = segs.map(s => ({ start: s.start, end: s.end, text: s.text.trim(), zh: '', words: s.words && s.words.length ? s.words : undefined }));
     saveSubtitles();
     setTranscribeStatus(`✓ 转写完成，共 ${subtitles.length} 句（已自动保存，刷新不丢失）`);
@@ -2239,7 +2303,7 @@ function renderSubtitleList() {
     if (favOnly && !favs.has(i)) return;
     const n = counts[i] || 0;
     const div = document.createElement('div');
-    div.className = 'sub-item';
+    div.className = 'sub-item' + (n > 0 ? ' practiced' : '');
     div.dataset.si = i;
     div.innerHTML = `
       <span class="sub-idx">${i + 1}</span>
@@ -2263,6 +2327,11 @@ function renderSubtitleList() {
   renderPracticeStats();
   updateFavBtn();
   placePracticePanel();   // 若正在句子练习，把面板重新嵌回当前行
+  // 首次出现字幕列表时提示核心交互（只提示一次）
+  if (subtitles.length > 0 && !localStorage.getItem('shadow_hint_words')) {
+    localStorage.setItem('shadow_hint_words', '1');
+    showToast('💡 点句子 = 跳转播放 ｜ 点单词 = 查词释义 ｜ ☆ = 收藏 ｜ 🎤 = 逐句跟读', 8000);
+  }
 }
 
 /* ── 收藏句子 ── */
@@ -2292,6 +2361,7 @@ function toggleFav(i, e) {
 function bumpRowBadge(i) {
   const row = document.querySelector(`.sub-item[data-si="${i}"]`);
   if (!row) return;
+  row.classList.add('practiced');
   const n = getPracticeCounts()[i] || 0;
   let badge = row.querySelector('.practice-count-badge');
   if (!badge) {
@@ -2328,18 +2398,48 @@ function exportFavs() {
 
 function editSubtitle(i, e) {
   e.stopPropagation();
+  const row = document.querySelector(`.sub-item[data-si="${i}"]`);
   const s = subtitles[i];
-  const nt = prompt('修改英文字幕：', s.text);
-  if (nt === null) return;
-  s.text = nt.trim();
-  if (subMode === 'bilingual') {
-    const nz = prompt('修改中文翻译（留空则清除，取消则不动）：', s.zh || '');
-    if (nz !== null) s.zh = nz.trim();
-  }
-  saveSubtitles();
-  lastActiveSub = null;   // 强制刷新当前字幕显示
-  renderSubtitleList();
-  showToast('字幕已修改并保存');
+  if (!row || !s || row.classList.contains('editing')) return;
+  row.classList.add('editing');
+  const textDiv = row.querySelector('.sub-text');
+  const escA = v => String(v || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  textDiv.innerHTML = `
+    <input class="edit-en" value="${escA(s.text)}" spellcheck="false"
+      style="width:100%;padding:5px 8px;border:1px solid var(--accent);border-radius:6px;font-size:13px;background:#fff;color:var(--text);outline:none;">
+    <input class="edit-zh" value="${escA(s.zh)}" placeholder="中文翻译（可空）"
+      style="width:100%;margin-top:4px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:#fff;color:var(--text-muted);outline:none;">
+    <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Enter 保存 · Esc 取消</div>`;
+  const enI = textDiv.querySelector('.edit-en');
+  const zhI = textDiv.querySelector('.edit-zh');
+  enI.focus();
+  enI.setSelectionRange(enI.value.length, enI.value.length);
+  let done = false;
+  const finish = save => {
+    if (done) return;
+    done = true;
+    if (save) {
+      s.text = enI.value.trim();
+      s.zh = zhI.value.trim();
+      delete s.words;   // 文本变了，词级时间失效，改用估算
+      saveSubtitles();
+      lastActiveSub = null;
+      showToast('字幕已保存');
+    }
+    renderSubtitleList();
+  };
+  [enI, zhI].forEach(inp => {
+    inp.addEventListener('keydown', ev => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') finish(true);
+      if (ev.key === 'Escape') finish(false);
+    });
+    inp.addEventListener('click', ev => ev.stopPropagation());
+  });
+  // 焦点完全离开两个输入框 = 保存
+  textDiv.addEventListener('focusout', ev => {
+    if (!textDiv.contains(ev.relatedTarget)) setTimeout(() => finish(true), 100);
+  });
 }
 
 function selectSubtitle(i, e) {
@@ -2537,10 +2637,41 @@ function deleteSegment(i) {
 //  SUBTITLE PERSISTENCE (转写/翻译结果自动保存)
 // ═══════════════════════════════════════════════════════
 function subsKey() { return 'shadow_subs_' + currentFileName + '_' + (currentFile ? currentFile.size : ''); }
+
+/* 字幕存 IndexedDB（容量大、不会静默丢）；保存失败会明确提示 */
+async function idbPutSubs(fk, subs) {
+  const db = await openIdb();
+  return new Promise((resolve, reject) => {
+    const rq = db.transaction('subs', 'readwrite').objectStore('subs').put({ fk, subs, at: Date.now() });
+    rq.onsuccess = () => resolve();
+    rq.onerror = () => reject(rq.error);
+  });
+}
+async function idbGetSubs(fk) {
+  try {
+    const db = await openIdb();
+    return await new Promise(resolve => {
+      const rq = db.transaction('subs', 'readonly').objectStore('subs').get(fk);
+      rq.onsuccess = () => resolve(rq.result ? rq.result.subs : null);
+      rq.onerror = () => resolve(null);
+    });
+  } catch (e) { return null; }
+}
+async function idbAllSubs() {
+  try {
+    const db = await openIdb();
+    return await new Promise(resolve => {
+      const rq = db.transaction('subs', 'readonly').objectStore('subs').getAll();
+      rq.onsuccess = () => resolve(rq.result || []);
+      rq.onerror = () => resolve([]);
+    });
+  } catch (e) { return []; }
+}
 function saveSubtitles() {
   if (!currentFileName) return;
-  try { localStorage.setItem(subsKey(), JSON.stringify(subtitles)); }
-  catch (e) { /* localStorage 满时静默忽略 */ }
+  const fk = subsKey();
+  idbPutSubs(fk, subtitles).catch(e => showToast('⚠️ 字幕保存失败：' + (e && e.message || e), 5000));
+  try { localStorage.removeItem(fk); } catch (e) {}   // 清理旧的 localStorage 副本
 }
 
 function secToSrtTime(t) {
@@ -3696,9 +3827,20 @@ async function exportCutFile(i) {
       await ff.writeFile(inName, await FFmpegUtil.fetchFile(currentFile));
       ffWrittenKey = fileKey();
     }
-    setCutStatus(`⏳ 正在导出 ${c.label}…`);
+    const vertical = document.getElementById('cut-vertical').checked && isVideoFile(currentFile);
+    setCutStatus(vertical
+      ? `⏳ 正在导出 ${c.label}（竖屏重编码，${Math.round((c.end - c.start) / 60)} 分钟片段约需 5–15 分钟，请耐心等）…`
+      : `⏳ 正在导出 ${c.label}…`);
     const outName = 'clip' + ext;
-    await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName, '-c', 'copy', outName]);
+    if (vertical) {
+      // 小红书竖屏：1080×1920，视频居中上下黑边（重编码）
+      await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName,
+        '-vf', 'scale=1080:-2:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black',
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+        '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outName]);
+    } else {
+      await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName, '-c', 'copy', outName]);
+    }
     const data = await ff.readFile(outName);
     const blob = new Blob([data.buffer], { type: currentFile.type || 'application/octet-stream' });
     const a = document.createElement('a');
@@ -3717,12 +3859,14 @@ async function exportCutFile(i) {
 // ═══════════════════════════════════════════════════════
 //  DATA BACKUP / RESTORE (localStorage 里所有 shadow_ 数据)
 // ═══════════════════════════════════════════════════════
-function backupShadowData() {
-  const data = { app: 'shadow-lab', version: 1, exportedAt: new Date().toISOString(), items: {} };
+async function backupShadowData() {
+  const data = { app: 'shadow-lab', version: 2, exportedAt: new Date().toISOString(), items: {} };
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (k && k.startsWith('shadow_')) data.items[k] = localStorage.getItem(k);
   }
+  // IndexedDB 里的字幕也打包
+  (await idbAllSubs()).forEach(rec => { data.items[rec.fk] = JSON.stringify(rec.subs); });
   const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
   const d = new Date();
@@ -3744,7 +3888,12 @@ function restoreShadowData(e) {
     const n = Object.keys(data.items).length;
     if (!confirm(`导入 ${data.exportedAt ? data.exportedAt.slice(0,10) : '未知日期'} 的备份（${n} 项）？\n同名数据将被备份内容覆盖。`)) return;
     Object.keys(data.items).forEach(k => {
-      try { localStorage.setItem(k, data.items[k]); } catch (err) {}
+      if (k.startsWith('shadow_subs_')) {
+        // 字幕写入 IndexedDB
+        try { idbPutSubs(k, JSON.parse(data.items[k])).catch(() => {}); } catch (err) {}
+      } else {
+        try { localStorage.setItem(k, data.items[k]); } catch (err) {}
+      }
     });
     loadApiKeys();
     showToast('导入完成 ✓ 重新打开文件即可看到恢复的字幕和片段');
