@@ -111,11 +111,12 @@
     overflow-y: auto;
     padding-bottom: 16px;
   }
-  #main-right #subtitle-list-wrap { max-height: 44vh; }
+  /* 字幕列表 = 主操作区（视频正下方，全宽），占据剩余视野 */
+  #main-left #subtitle-list-wrap { max-height: 52vh; }
   @media (max-width: 1020px) {
     #main.open { display: block; }
     #main-right { width: auto; position: static; max-height: none; overflow: visible; }
-    #main-right #subtitle-list-wrap { max-height: 260px; }
+    #main-left #subtitle-list-wrap { max-height: 44vh; }
   }
 
   /* ── File Info Bar ── */
@@ -152,15 +153,17 @@
   }
   /* Subtitle labels shown above waveform as markers (rendered inside wavesurfer canvas area via overlay) */
   #current-subtitle {
-    margin-top: 10px;
+    margin-bottom: 12px;
     min-height: 48px;
-    padding: 8px 12px;
-    background: var(--surface2);
-    border-radius: 8px;
-    font-size: 15px;
-    line-height: 1.6;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 16px;
+    line-height: 1.7;
     display: none;
   }
+  #video-el { max-height: 38vh; }   /* 视频小窗化，把主视野留给字幕列表 */
   #current-subtitle .en { color: var(--text); }
   #current-subtitle .zh { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
 
@@ -243,12 +246,9 @@
     border-radius: 10px;
     padding: 12px 16px;
     margin-bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
   }
-  #sub-mode-wrap .ctrl-label { margin-right: 4px; }
+  #sub-mode-wrap h3 { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; font-weight: 500; }
+  #sub-mode-wrap .ctrl-label { margin-right: 4px; min-width: 56px; }
   #translate-status { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
 
   /* ── Transcribe Panel ── */
@@ -375,14 +375,51 @@
   .lookup-w { cursor: pointer; border-radius: 3px; padding: 0 1px; }
   .lookup-w:hover { background: var(--accent-light); }
 
+  /* ── 逐词卡拉OK高亮 ── */
+  .kw { cursor: pointer; border-radius: 3px; padding: 0 1px; transition: color .08s; }
+  .kw:hover { background: var(--accent-light); }
+  .kw.on { color: #d97706; font-weight: 700; }
+  #video-caption .kw.on { color: #fbbf24; }
+
+  /* ── 字幕列表：序号 + 收藏 ── */
+  .sub-idx { font-size: 10.5px; color: var(--text-muted); min-width: 26px; text-align: right; padding-top: 3px; }
+  .fav-btn { border: none; background: none; cursor: pointer; font-size: 14px; padding: 2px 4px; opacity: .45; }
+  .fav-btn.faved { opacity: 1; }
+  .sub-item.fav-hidden { display: none; }
+
+  /* ── 查词弹窗 ── */
+  #dict-pop {
+    position: fixed; z-index: 10000; display: none;
+    width: 320px; max-height: 340px; overflow-y: auto;
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 8px 28px rgba(74,69,64,0.25);
+    padding: 14px 16px; font-size: 13px; line-height: 1.65; color: #333;
+  }
+  #dict-pop .dp-word { font-size: 17px; font-weight: 700; color: #1a1a1a; }
+  #dict-pop .dp-ipa { color: #888; margin-left: 6px; font-size: 13px; }
+  #dict-pop .dp-pos { color: #8a9e8a; font-weight: 600; }
+  #dict-pop .dp-syn { display: inline-block; background: #f0ede8; border-radius: 5px; padding: 1px 8px; margin: 2px 3px 0 0; font-size: 12px; color: #555; }
+  #dict-pop .dp-row { margin-top: 8px; display: flex; gap: 8px; }
+  #dict-pop .dp-close { position: absolute; top: 8px; right: 10px; border: none; background: none; cursor: pointer; color: #999; font-size: 14px; }
+
   /* ── Video Caption (视频内嵌字幕) ── */
   #video-wrap { position: relative; }
+  /* 原片字幕遮挡条：盖住画面底部烧录的字幕，工具字幕显示在其上层 */
+  #sub-mask {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 18%;
+    background: #000;
+    display: none;
+    z-index: 5;
+  }
   #video-caption {
     position: absolute;
     left: 0; right: 0; bottom: 8px;
     text-align: center;
     pointer-events: none;
     padding: 0 20px;
+    z-index: 6;
   }
   #video-caption .cap-en {
     display: inline-block;
@@ -446,6 +483,26 @@
     background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
     padding: 5px 8px; font-size: 12px; color: var(--text); outline: none;
   }
+
+  /* ── 右栏面板可折叠 ── */
+  .rp-collapsible > h3 { cursor: pointer; user-select: none; }
+  .rp-collapsible > h3::before { content: '▾ '; color: var(--accent); font-size: 11px; }
+  .rp-collapsible.collapsed > h3::before { content: '▸ '; }
+  .rp-collapsible.collapsed > h3 { margin-bottom: 0; }
+  .rp-collapsible.collapsed > *:not(h3) { display: none !important; }
+  #waveform-wrap h3 { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; font-weight: 500; }
+
+  /* ── 列表内嵌跟读条 ── */
+  #practice-panel.inline {
+    margin: 4px 4px 10px 34px;
+    padding: 10px 14px;
+    border-width: 1px;
+    box-shadow: 0 2px 8px rgba(74,69,64,0.10);
+  }
+  #practice-panel.inline #practice-text,
+  #practice-panel.inline #practice-zh { display: none; }
+  #practice-panel.inline #practice-head { margin-bottom: 6px; }
+  #practice-panel.inline #practice-title { font-size: 12.5px; color: var(--text-muted); }
 
   /* ── Practice Mode (逐句跟读练习) ── */
   #practice-panel {
@@ -553,7 +610,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab</span>
+    <span>Shadow Reading Lab · v20260706</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -602,7 +659,22 @@
   <button class="btn" onclick="loadFromUrl()">🔗 载入链接</button>
   <button class="btn" onclick="pickFileWithHandle()" title="通过系统选择器打开，浏览器会记住位置，下次一键重开">📂 打开并记住</button>
 </div>
-<div id="url-note">注：仅支持指向媒体文件本身的直链。YouTube / B站 / 播客节目页需先用 shadow_reader 完整版（启动.bat）下载，或下载成文件后拖入。</div>
+<div id="url-note">注：仅支持指向媒体文件本身的直链。YouTube / B站 / 播客节目页需先下载成文件（方法见下）。</div>
+
+<!-- YouTube/B站 链接分步指引（检测到平台链接时显示） -->
+<div id="yt-guide" style="display:none; margin:10px 16px 0; background:var(--surface); border:2px solid var(--accent2); border-radius:12px; padding:16px 18px;">
+  <div style="font-weight:600; margin-bottom:10px;">📥 这个链接是视频网页，浏览器无法直接抓取。请按下面 4 步下载（约 2 分钟）：</div>
+  <div style="font-size:13px; line-height:2;">
+    <b>第 1 步</b>：打开电脑上的文件夹 <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;">桌面 → 英文学习 → shadow_reader</code>，<b>双击 启动.bat</b>（会弹出一个黑窗口和一个网页）<br>
+    <b>第 2 步</b>：在弹出的网页里找到「🌐 链接下载」，粘贴你的链接，点 ▶ 下载<br>
+    <b>第 3 步</b>：下载完成后，视频和字幕在 <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;">shadow_reader → output → 视频名文件夹</code> 里（mp4 + .srt 两个文件）<br>
+    <b>第 4 步</b>：回到本页面，<b>拖入那个 mp4</b>，再点「导入 SRT / VTT / JSON 字幕」选同文件夹里的 <b>.srt</b> —— 之后就能逐句点播、逐句跟读了（YouTube 自带字幕，无需花钱转写）
+  </div>
+  <div style="margin-top:10px; display:flex; gap:8px;">
+    <button class="btn" onclick="document.getElementById('yt-guide').style.display='none'">知道了，收起</button>
+    <span style="font-size:12px;color:var(--text-muted);align-self:center;">提示：启动.bat 打不开或报错的话，把黑窗口里的文字截图发给我</span>
+  </div>
+</div>
 
 <!-- Main -->
 <div id="main">
@@ -615,35 +687,15 @@
     <button class="btn" onclick="resetAll()" style="margin-left:auto;">换文件</button>
   </div>
 
-  <!-- Transcribe Panel -->
-  <div id="transcribe-panel">
-    <h3>语音转写</h3>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-      <button class="btn active" id="transcribe-btn" onclick="doTranscribe()">▶ API 转写（Whisper）</button>
-      <button class="btn" id="local-transcribe-btn" onclick="doLocalTranscribe()" title="浏览器内本地运行 Whisper 模型，零费用；首次使用需下载模型（仅一次）">🆓 本地转写（免费·英文）</button>
-      <select class="mini-select" id="whisper-model-sel" onchange="localStorage.setItem('shadow_whisper_model', this.value)" title="tiny 快、base 准；均为一次性下载后离线可用">
-        <option value="tiny">tiny 模型（40MB·快）</option>
-        <option value="base">base 模型（80MB·更准）</option>
-      </select>
-      <button class="btn" onclick="doSilenceSplit()" title="不转写也能练：按静音间隙自动把音频切成小段，加入选段剪切列表">🔇 静音切分</button>
-      <select class="mini-select" id="vad-mode-sel" title="影视剧/综艺有背景音乐和音效，需要更高的人声判定阈值">
-        <option value="tv">影视剧/带背景音</option>
-        <option value="clean">播客/干净人声</option>
-      </select>
-      <button class="btn" onclick="loadSubtitleFile()">导入 SRT / VTT / JSON 字幕</button>
-      <button class="btn" onclick="exportSRT()">⬇ 导出 SRT</button>
-      <input type="file" id="sub-file-input" accept=".srt,.vtt,.json" style="display:none" onchange="onSubFileLoad(event)" />
-      <span id="transcribe-status"></span>
-    </div>
-  </div>
-
   <!-- Video -->
   <div id="video-wrap">
     <video id="video-el" playsinline></video>
+    <div id="sub-mask"></div>
     <div id="video-caption"></div>
   </div>
 
-  <!-- Practice Mode（主练习区，位于视频下方） -->
+  <!-- Practice Mode（跟读句子时嵌入字幕列表行内；跟读片段时显示在这里） -->
+  <div id="practice-home"></div>
   <div id="practice-panel" style="display:none;">
     <div id="practice-head">
       <span id="practice-title">🎤 逐句跟读</span>
@@ -668,32 +720,10 @@
     </div>
   </div>
 
-  <!-- Waveform -->
-  <div id="waveform-wrap">
-    <div id="waveform"></div>
-    <div id="current-subtitle">
-      <div class="en" id="sub-en"></div>
-      <div class="zh" id="sub-zh"></div>
-    </div>
-    <div id="zoom-row">
-      <span class="ctrl-label">波形缩放</span>
-      <input type="range" id="zoom-slider" min="0" max="400" value="0" oninput="applyZoom(this.value)" />
-      <button class="btn" id="gen-wave-btn" style="display:none;" onclick="waveformFallback()" title="大文件默认不解码（秒开）；点此提取音频生成真实波形">🌊 生成真实波形</button>
-    </div>
-  </div>
-
-  <!-- Region Info -->
-  <div id="region-info">
-    已选区间：<span id="region-start-disp">—</span> → <span id="region-end-disp">—</span>
-    <button class="btn" onclick="saveCurrentRegion()">💾 保存片段</button>
-    <button class="btn active" id="loop-btn" onclick="toggleLoop()">🔁 循环播放</button>
-    <select class="mini-select" id="loop-limit-sel" onchange="loopsDone=0" title="循环多少次后自动停">
-      <option value="0">循环 ∞</option>
-      <option value="3">循环 3 次</option>
-      <option value="5">循环 5 次</option>
-      <option value="10">循环 10 次</option>
-    </select>
-    <button class="btn" onclick="clearRegion()">✕ 清除选区</button>
+  <!-- 当前字幕（音频文件的主字幕显示；视频另有画面内嵌字幕） -->
+  <div id="current-subtitle">
+    <div class="en" id="sub-en"></div>
+    <div class="zh" id="sub-zh"></div>
   </div>
 
   <!-- Controls -->
@@ -708,18 +738,6 @@
       <button class="btn" onclick="replayCurrentSentence()">🔂 重播本句</button>
       <button class="btn" onclick="nextSentence()">⏭ 下一句</button>
       <button class="btn" style="background:var(--accent);color:#fff;border-color:var(--accent);" onclick="enterPracticeHere()" title="进入逐句跟读练习（听→录→评分→下一句）">🎤 逐句跟读</button>
-    </div>
-    <div class="ctrl-group">
-      <span class="ctrl-label">播放模式</span>
-      <select class="mini-select" id="play-mode-sel" onchange="setPlayMode(this.value)" title="连续播放｜每句播完停一下（留时间跟读）｜同一句无限循环">
-        <option value="continuous">▶ 连续播放</option>
-        <option value="pause">⏸ 每句停一下</option>
-        <option value="loop">🔁 单句循环</option>
-      </select>
-      <select class="mini-select" id="pause-resume-sel" style="display:none;" title="逐句暂停后：手动按空格继续，或留出跟读时间后自动继续">
-        <option value="manual">暂停后手动继续</option>
-        <option value="auto">停 1.5×句长后自动继续</option>
-      </select>
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">倍速</span>
@@ -740,25 +758,104 @@
     <div id="shortcut-hint">快捷键：空格 播放/暂停 · ← → ±5 秒 · R 重播本句 · P/N 上一句/下一句 · M 录音 ｜ 跟读练习中：空格 听原句 · R 录音 · C 对比 · N/P 切句 · Esc 退出</div>
   </div>
 
-  <!-- Subtitle Mode -->
-  <div id="sub-mode-wrap">
-    <span class="ctrl-label">字幕模式</span>
-    <button class="btn" id="sub-none" onclick="setSubMode('none')">无字幕</button>
-    <button class="btn active" id="sub-en-btn" onclick="setSubMode('en')">英文字幕</button>
-    <button class="btn" id="sub-bi" onclick="setSubMode('bilingual')">中英双语</button>
-    <button class="btn" id="blind-btn" onclick="toggleBlind()" title="盲听训练：字幕全部模糊，点击某句可临时显示">🙈 盲听</button>
-    <button class="btn" onclick="doLocalTranslate()" title="浏览器本地翻译模型（首次下载约 110MB，之后离线可用），零费用；质量略逊于 API">🆓 本地翻译</button>
-    <span id="translate-status"></span>
+  <!-- Subtitle List（主操作区：视频正下方，全宽） -->
+  <div id="subtitle-list-wrap">
+    <h3>字幕列表 <small>（点句跳转 · 点词查义）</small> <span id="practice-stats"></span>
+      <button class="btn" id="fav-filter-btn" style="padding:2px 8px;font-size:11px;float:right;" onclick="toggleFavOnly()">⭐ 收藏</button>
+      <button class="btn" id="fav-export-btn" style="padding:2px 8px;font-size:11px;float:right;margin-right:4px;display:none;" onclick="exportFavs()">⬇ 导出</button>
+    </h3>
+    <div id="subtitle-list"></div>
   </div>
 
 </div><!-- /main-left -->
 
 <div id="main-right">
 
-  <!-- Subtitle List -->
-  <div id="subtitle-list-wrap">
-    <h3>字幕列表 <small>（点击跳转）</small> <span id="practice-stats"></span></h3>
-    <div id="subtitle-list"></div>
+  <!-- 播放与字幕设置 -->
+  <div id="sub-mode-wrap">
+    <h3>⚙ 字幕与播放设置</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <span class="ctrl-label">字幕</span>
+      <button class="btn" id="sub-none" onclick="setSubMode('none')">无</button>
+      <button class="btn active" id="sub-en-btn" onclick="setSubMode('en')">英文</button>
+      <button class="btn" id="sub-bi" onclick="setSubMode('bilingual')">双语</button>
+      <button class="btn" onclick="doLocalTranslate()" title="浏览器本地翻译模型（首次下载约 110MB，之后离线可用），零费用">🆓 本地翻译</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+      <span class="ctrl-label">遮原字幕</span>
+      <button class="btn" id="sub-mask-btn" onclick="toggleSubMask()" title="视频画面里印死的字幕擦不掉，但可以用黑条盖住；工具生成的字幕显示在黑条上层">🕶 遮挡开关</button>
+      <input type="range" id="sub-mask-h" min="8" max="45" value="18" style="width:110px;accent-color:var(--accent);display:none;"
+             oninput="setSubMaskHeight(this.value)" title="调节遮挡条高度，正好盖住原字幕即可">
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+      <span class="ctrl-label">训练</span>
+      <button class="btn" id="blind-btn" onclick="toggleBlind()" title="盲听训练：字幕全部模糊，点击某句可临时显示">🙈 盲听</button>
+      <button class="btn active" id="karaoke-btn" onclick="toggleKaraoke()" title="播放到哪个词，哪个词变橙色">🎯 逐词高亮</button>
+      <button class="btn" id="skip-gap-btn" onclick="toggleSkipGap()" title="自动跳过句子之间的停顿间隙">⏩ 跳过空白</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+      <span class="ctrl-label">播放模式</span>
+      <select class="mini-select" id="play-mode-sel" onchange="setPlayMode(this.value)" title="连续播放｜每句播完停一下（留时间跟读）｜同一句无限循环">
+        <option value="continuous">▶ 连续播放</option>
+        <option value="pause">⏸ 每句停一下</option>
+        <option value="loop">🔁 单句循环</option>
+      </select>
+      <select class="mini-select" id="pause-resume-sel" style="display:none;" title="逐句暂停后：手动按空格继续，或留出跟读时间后自动继续">
+        <option value="manual">暂停后手动继续</option>
+        <option value="auto">停 1.5×句长后自动继续</option>
+      </select>
+    </div>
+    <div id="translate-status" style="font-size:12px;color:var(--text-muted);margin-top:6px;"></div>
+  </div>
+
+  <!-- Transcribe Panel -->
+  <div id="transcribe-panel">
+    <h3>字幕生成</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <button class="btn" id="local-transcribe-btn" onclick="doLocalTranscribe()" title="浏览器内本地运行 Whisper 模型，零费用；首次使用需下载模型（仅一次）">🆓 本地转写（免费·英文）</button>
+      <button class="btn" id="transcribe-btn" onclick="doTranscribe()">▶ API 转写</button>
+      <select class="mini-select" id="whisper-model-sel" onchange="localStorage.setItem('shadow_whisper_model', this.value)" title="tiny 快、base 准；均为一次性下载后离线可用">
+        <option value="tiny">tiny 模型（40MB·快）</option>
+        <option value="base">base 模型（80MB·更准）</option>
+      </select>
+      <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;" title="上传素材后自动开始生成字幕（免费本地转写）">
+        <input type="checkbox" id="auto-transcribe-chk" onchange="localStorage.setItem('shadow_auto_transcribe', this.checked ? '1' : '')"> 上传后自动生成
+      </label>
+      <button class="btn" onclick="loadSubtitleFile()">导入 SRT / VTT / JSON</button>
+      <button class="btn" onclick="exportSRT()">⬇ 导出 SRT</button>
+      <button class="btn" onclick="doSilenceSplit()" title="不转写也能练：按静音间隙自动把音频切成小段，加入选段剪切列表">🔇 静音切分</button>
+      <select class="mini-select" id="vad-mode-sel" title="影视剧/综艺有背景音乐和音效，需要更高的人声判定阈值">
+        <option value="tv">影视剧/带背景音</option>
+        <option value="clean">播客/干净人声</option>
+      </select>
+      <input type="file" id="sub-file-input" accept=".srt,.vtt,.json" style="display:none" onchange="onSubFileLoad(event)" />
+      <span id="transcribe-status"></span>
+    </div>
+  </div>
+
+  <!-- Waveform -->
+  <div id="waveform-wrap">
+    <h3>🌊 波形</h3>
+    <div id="waveform"></div>
+    <div id="zoom-row">
+      <span class="ctrl-label">波形缩放</span>
+      <input type="range" id="zoom-slider" min="0" max="400" value="0" oninput="applyZoom(this.value)" />
+      <button class="btn" id="gen-wave-btn" style="display:none;" onclick="waveformFallback(true)" title="大文件默认不解码（秒开）；点此提取音频生成真实波形">🌊 生成真实波形</button>
+    </div>
+  </div>
+
+  <!-- Region Info -->
+  <div id="region-info">
+    已选区间：<span id="region-start-disp">—</span> → <span id="region-end-disp">—</span>
+    <button class="btn" onclick="saveCurrentRegion()">💾 保存片段</button>
+    <button class="btn active" id="loop-btn" onclick="toggleLoop()">🔁 循环播放</button>
+    <select class="mini-select" id="loop-limit-sel" onchange="loopsDone=0" title="循环多少次后自动停">
+      <option value="0">循环 ∞</option>
+      <option value="3">循环 3 次</option>
+      <option value="5">循环 5 次</option>
+      <option value="10">循环 10 次</option>
+    </select>
+    <button class="btn" onclick="clearRegion()">✕ 清除选区</button>
   </div>
 
   <!-- Cut Segments -->
@@ -808,6 +905,9 @@
 <!-- Toast -->
 <div id="toast"></div>
 
+<!-- 查词弹窗 -->
+<div id="dict-pop"></div>
+
 <script>
 // ═══════════════════════════════════════════════════════
 //  STATE
@@ -843,6 +943,95 @@ let blindMode = false;       // 盲听模式
 let pauseResumeTimer = null; // 逐句暂停自动继续计时器
 let loopSentenceMode = false;// 单句循环模式
 let loopSegRange = null;     // 单句循环的当前句 [start, end]
+let karaokeEnabled = localStorage.getItem('shadow_karaoke') !== '0';   // 逐词高亮
+let skipGaps = false;        // 跳过句间空白
+let favs = new Set();        // 收藏的句子下标
+let favOnly = false;         // 只看收藏
+let kwSets = [];             // 当前句的词元素缓存 [subEnSpans, capSpans, rowSpans]
+let kwPrevIdx = -1;
+let karaokeRaf = null;
+
+/* 二分查找当前时间所在句（1170 句的列表线性扫会拖慢播放循环） */
+function findSubIdxAt(t) {
+  let lo = 0, hi = subtitles.length - 1, ans = -1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1;
+    if (subtitles[m].start <= t) { ans = m; lo = m + 1; } else hi = m - 1;
+  }
+  return (ans >= 0 && t <= subtitles[ans].end) ? ans : -1;
+}
+let activeRowEl = null;   // 当前高亮行（避免每次全列表遍历）
+
+/* 词级时间：没有精确数据时按词长比例估算（导入 SRT 的情况） */
+function ensureWords(s) {
+  if (s.words && s.words.length) return s.words;
+  const toks = s.text.split(/\s+/).filter(Boolean);
+  const dur = Math.max((s.end - s.start), 0.3);
+  const total = toks.reduce((a, w) => a + w.length + 1.5, 0);
+  let t = s.start;
+  s.words = toks.map(w => {
+    const d = dur * (w.length + 1.5) / total;
+    const o = { w, s: t, e: t + d };
+    t += d;
+    return o;
+  });
+  return s.words;
+}
+
+function toggleKaraoke() {
+  karaokeEnabled = !karaokeEnabled;
+  localStorage.setItem('shadow_karaoke', karaokeEnabled ? '1' : '0');
+  document.getElementById('karaoke-btn').classList.toggle('active', karaokeEnabled);
+  if (!karaokeEnabled) clearKaraoke();
+  else ensureKaraokeLoop();   // 播放中重新开启时立即恢复
+}
+function toggleSkipGap() {
+  skipGaps = !skipGaps;
+  document.getElementById('skip-gap-btn').classList.toggle('active', skipGaps);
+  if (skipGaps && subtitles.length === 0) {
+    showToast('已开启，但需要字幕时间数据才生效：先「🆓 本地转写」或「导入 SRT」（画面里印的字幕无法使用）', 5000);
+  } else {
+    showToast(skipGaps ? '跳过空白已开启：句间停顿会自动跳到下一句' : '跳过空白已关闭');
+  }
+}
+function clearKaraoke() {
+  kwSets.forEach(set => set && set.forEach(el => el.classList.remove('on')));
+  kwPrevIdx = -1;
+}
+function updateKaraoke(t) {
+  if (!karaokeEnabled || !lastActiveSub || !kwSets.length) return;
+  const words = ensureWords(lastActiveSub);
+  let idx = -1;
+  for (let i = 0; i < words.length; i++) {
+    if (t >= words[i].s) idx = i; else break;
+  }
+  if (idx === kwPrevIdx) return;
+  kwSets.forEach(set => {
+    if (!set) return;
+    set.forEach(el => {
+      const wi = Number(el.dataset.wi);
+      el.classList.toggle('on', wi <= idx);   // 卡拉OK：已唱过的词全部点亮
+    });
+  });
+  kwPrevIdx = idx;
+}
+function karaokeTick() {
+  if (!ws || !ws.isPlaying() || !karaokeEnabled) { karaokeRaf = null; return; }
+  updateKaraoke(ws.getCurrentTime());
+  karaokeRaf = requestAnimationFrame(karaokeTick);
+}
+function ensureKaraokeLoop() {
+  if (karaokeEnabled && !karaokeRaf && ws && ws.isPlaying && ws.isPlaying()) {
+    karaokeRaf = requestAnimationFrame(karaokeTick);
+  }
+}
+
+/* 把句子文本渲染成可高亮、可查词的词 span */
+function wordSpansHtml(text) {
+  return text.split(/\s+/).map((w, i) =>
+    /[A-Za-z]/.test(w) ? `<span class="kw" data-wi="${i}">${escHtml(w)}</span>` : escHtml(w)
+  ).join(' ');
+}
 let audio16k = null;         // 提取的 16k 单声道音频（波形/转写/切分共享，只提取一次）
 let audio16kKey = '';
 let waveformFallbackTried = false;
@@ -862,11 +1051,16 @@ async function get16kAudio() {
 }
 
 /* 波形备用渲染：解码失败/超时 → 提取音频算峰值，重建波形（不再依赖浏览器解码原文件） */
-async function waveformFallback() {
-  if (waveformFallbackTried || !currentFile) return;
+let waveformFallbackRunning = false;
+async function waveformFallback(force) {
+  if (!currentFile || waveformFallbackRunning) return;
+  if (waveformFallbackTried && !force) return;   // 自动触发只试一次；手动点击总是可重试
   waveformFallbackTried = true;
+  waveformFallbackRunning = true;
+  const genBtn = document.getElementById('gen-wave-btn');
+  if (genBtn) { genBtn.disabled = true; genBtn.textContent = '⏳ 提取音频中…（大视频需 1–3 分钟）'; }
   try {
-    showToast('⏳ 正在用备用方式生成波形…');
+    showToast('⏳ 正在提取音频生成波形（进度见转写/剪切面板状态栏）…', 4000);
     const audio = await get16kAudio();
     const N = 4000;
     const peaks = new Float32Array(N);
@@ -880,9 +1074,14 @@ async function waveformFallback() {
       peaks[i] = m;
     }
     initWaveSurfer(currentFile, { peaks: Array.from(peaks), duration: audio.length / 16000 });
-    showToast('✓ 波形已生成');
+    showToast('✓ 真实波形已生成');
   } catch (e) {
-    showToast('波形无法生成（不影响播放、跟读、剪切等功能）', 4000);
+    waveformFallbackTried = false;   // 失败允许再点重试
+    showToast('波形生成失败：' + e.message + '（不影响播放、跟读、剪切）', 5000);
+  } finally {
+    waveformFallbackRunning = false;
+    const b = document.getElementById('gen-wave-btn');
+    if (b) { b.disabled = false; b.textContent = '🌊 生成真实波形'; }
   }
 }
 
@@ -991,12 +1190,16 @@ function loadFile(file) {
   subtitles = [];
   const cached = localStorage.getItem(subsKey());
   if (cached) {
-    try { subtitles = JSON.parse(cached) || []; } catch (e) { subtitles = []; }
+    try { subtitles = cleanSubtitles(JSON.parse(cached) || []); } catch (e) { subtitles = []; }
   }
   if (subtitles.length > 0) {
     setTranscribeStatus(`✓ 已恢复该文件上次的字幕（${subtitles.length} 句），无需重新转写`);
+  } else if (localStorage.getItem('shadow_auto_transcribe') === '1') {
+    // 自动生成字幕模式：上传即转写（像常见跟读 App 一样）
+    setTranscribeStatus('🤖 自动生成字幕已开启，即将开始本地转写…');
+    setTimeout(() => { if (subtitles.length === 0) doLocalTranscribe(); }, 800);
   } else if (isVideoFile(file)) {
-    setTranscribeStatus('提示：画面里烧录的字幕无法直接读取。点「🆓 本地转写」生成可点句跳转的字幕（或导入 SRT）；不想转写就用「🔇 静音切分」按停顿切段逐段跟读。');
+    setTranscribeStatus('提示：画面里烧录的字幕无法直接读取。点「🆓 本地转写」自动生成可点句跳转的字幕（勾选旁边的选项可每次自动）；已有 .srt 文件就用「导入字幕」。');
   } else {
     setTranscribeStatus('');
   }
@@ -1024,6 +1227,17 @@ function loadFile(file) {
   lastActiveSub = null;
   pauseSegEnd = null;
   abState = null;
+  // 清空上一个文件残留的字幕显示
+  document.getElementById('sub-en').innerHTML = '';
+  document.getElementById('sub-zh').textContent = '';
+  document.getElementById('video-caption').innerHTML = '';
+  kwSets = [];
+  kwPrevIdx = -1;
+  clearRegion();
+  favOnly = false;
+  loadFavs();
+  document.getElementById('fav-filter-btn').classList.remove('active');
+  document.getElementById('fav-export-btn').style.display = 'none';
   renderSubtitleList();
   setSubMode('en');
   loadSavedSegments();
@@ -1147,6 +1361,8 @@ function initWaveSurfer(file, pre) {
       if (m && isFinite(m.duration) && m.duration > 0) onDurationKnown(m.duration);
       else if (!heavy) onDurationKnown(ws.getDuration());
     }
+    ensureKaraokeLoop();   // 双保险：play 事件丢失（原生控制条/波形重建）时也能启动逐词高亮
+    if (karaokeEnabled) updateKaraoke(t);   // 三保险：rAF 被浏览器节流（后台/省电模式）时用 timeupdate 粗粒度点亮
     updateTimeDisplay(t);
     updateProgressBar(t);
     updateCurrentSubtitle(t);
@@ -1172,6 +1388,15 @@ function initWaveSurfer(file, pre) {
         seekSec(currentRegion.start);
       }
       return;
+    }
+    // 跳过空白：不在任何字幕句内且距下一句还有间隙 → 直接跳到下一句开头
+    if (skipGaps && subtitles.length > 0 && ws.isPlaying() && !practice && !autoShadowOn &&
+        !isLooping && !loopSentenceMode && !sentencePause && !abState) {
+      const inSub = subtitles.some(s => t >= s.start - 0.15 && t <= s.end + 0.15);
+      if (!inSub) {
+        const nxt = subtitles.find(s => s.start > t + 0.2);
+        if (nxt && nxt.start - t > 0.5) seekSec(nxt.start - 0.1);
+      }
     }
     if (loopSentenceMode && subtitles.length > 0 && ws.isPlaying()) {
       if (loopSegRange && t >= loopSegRange[1] - 0.05) {
@@ -1210,7 +1435,10 @@ function initWaveSurfer(file, pre) {
     }
   });
 
-  ws.on('play', () => { document.getElementById('play-btn').textContent = '⏸ 暂停'; });
+  ws.on('play', () => {
+    document.getElementById('play-btn').textContent = '⏸ 暂停';
+    if (!karaokeRaf && karaokeEnabled) karaokeRaf = requestAnimationFrame(karaokeTick);
+  });
   ws.on('pause', () => {
     document.getElementById('play-btn').textContent = '▶ 播放';
     if (recAudio.paused) markPlayingBtn(null);   // 原声播完且没有接续录音时，清除按钮高亮
@@ -1403,7 +1631,7 @@ async function doTranscribe() {
   document.getElementById('transcribe-btn').disabled = true;
   try {
     const segs = await doTranscribeAPI(currentFile, key, getWhisperUrl());
-    subtitles = segs.map(s => ({ start: s.start, end: s.end, text: s.text.trim(), zh: '' }));
+    subtitles = segs.map(s => ({ start: s.start, end: s.end, text: s.text.trim(), zh: '', words: s.words && s.words.length ? s.words : undefined }));
     saveSubtitles();
     setTranscribeStatus(`✓ 转写完成，共 ${subtitles.length} 句（已自动保存，刷新不丢失）`);
     renderSubtitleList();
@@ -1426,6 +1654,7 @@ async function doTranscribeAPI(file, apiKey, baseUrl) {
   formData.append('model', 'whisper-1');
   formData.append('response_format', 'verbose_json');
   formData.append('timestamp_granularities[]', 'segment');
+  formData.append('timestamp_granularities[]', 'word');   // 词级时间戳，驱动卡拉OK逐词高亮
   // language 可选: formData.append('language', 'en');
 
   const resp = await fetch(`${baseUrl}/audio/transcriptions`, {
@@ -1444,11 +1673,19 @@ async function doTranscribeAPI(file, apiKey, baseUrl) {
     // fallback: no segments, treat whole file as one segment
     return [{ start: 0, end: data.duration || 999, text: data.text }];
   }
-  return segs.map(s => ({ start: s.start, end: s.end, text: s.text }));
+  const allWords = data.words || [];
+  return segs.map(s => ({
+    start: s.start, end: s.end, text: s.text,
+    words: allWords
+      .filter(w => w.start >= s.start - 0.2 && w.start < s.end + 0.1)
+      .map(w => ({ w: String(w.word || '').trim(), s: w.start, e: w.end })),
+  }));
 }
 
 function setTranscribeStatus(msg) {
   document.getElementById('transcribe-status').textContent = msg;
+  // 有状态更新时自动展开面板，让进度可见
+  if (msg) document.getElementById('transcribe-panel').classList.remove('collapsed');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1467,17 +1704,22 @@ function loadTransformersJs() {
 async function loadPipelineWithFallback(task, model, opts) {
   const { pipeline, env } = await loadTransformersJs();
   env.allowLocalModels = false;
-  env.remoteHost = 'https://huggingface.co/';    // 每次都从官方源开始（避免上次失败残留镜像设置）
-  try {
-    return await pipeline(task, model, opts);
-  } catch (e) {
-    env.remoteHost = 'https://hf-mirror.com/';   // 官方源不通时改走国内镜像
+  // proxy=true：推理在 Worker 线程跑，页面不再被冻住（"页面无响应"的根源）
+  const attempts = [
+    ['https://huggingface.co/', true],
+    ['https://huggingface.co/', false],
+    ['https://hf-mirror.com/', true],
+    ['https://hf-mirror.com/', false],
+  ];
+  let lastErr = null;
+  for (const [host, proxy] of attempts) {
     try {
+      env.remoteHost = host;
+      try { env.backends.onnx.wasm.proxy = proxy; } catch (e) {}
       return await pipeline(task, model, opts);
-    } finally {
-      env.remoteHost = 'https://huggingface.co/';
-    }
+    } catch (e) { lastErr = e; }
   }
+  throw lastErr;
 }
 
 const WHISPER_MODELS = { tiny: 'onnx-community/whisper-tiny.en', base: 'onnx-community/whisper-base.en' };
@@ -1507,6 +1749,40 @@ async function resampleTo16k(decoded) {
   src.start();
   return (await off.startRendering()).getChannelData(0);
 }
+/* 词级转写结果 → 按标点/停顿/长度切成句子，保留每个词的精确时间 */
+function wordsToSentences(wordChunks, totalDur) {
+  const sents = [];
+  let cur = null;
+  let prevEnd = 0;
+  for (const c of wordChunks) {
+    const txt = c.text.trim();
+    if (!txt) continue;
+    const ws0 = (c.timestamp && c.timestamp[0] != null) ? c.timestamp[0] : prevEnd;
+    const we0 = (c.timestamp && c.timestamp[1] != null) ? c.timestamp[1] : ws0 + 0.3;
+    // 停顿 >0.8s → 断句
+    if (cur && ws0 - prevEnd > 0.8) {
+      cur.end = prevEnd;
+      sents.push(cur);
+      cur = null;
+    }
+    if (!cur) cur = { start: ws0, words: [] };
+    cur.words.push({ w: txt, s: ws0, e: we0 });
+    prevEnd = we0;
+    // 句末标点或过长 → 断句
+    if (/[.!?…]["')\]]?$/.test(txt) || cur.words.length >= 28) {
+      cur.end = we0;
+      sents.push(cur);
+      cur = null;
+    }
+  }
+  if (cur) { cur.end = prevEnd || totalDur; sents.push(cur); }
+  return sents.map(s => ({
+    start: s.start, end: s.end,
+    text: s.words.map(x => x.w).join(' '),
+    zh: '', words: s.words,
+  }));
+}
+
 async function fileTo16kMono(file) {
   try {
     const buf = await file.arrayBuffer();
@@ -1542,14 +1818,29 @@ async function fileTo16kMono(file) {
   }
 }
 
+let localTransRunning = false;
+let localTransCancel = false;
+let wordTsSupported = true;   // Worker 模式下词级时间戳不可用，首次失败后记住
+
+/* 分段渐进转写：切成约 2 分钟的片段逐段转写，每段完成立即出字幕——
+   长视频不用干等，转完前几分钟就能先练前几分钟；随时可停，已出部分保留 */
 async function doLocalTranscribe() {
+  if (localTransRunning) {   // 再点一次 = 停止（保留已转写部分）
+    localTransCancel = true;
+    setTranscribeStatus('⏹ 正在停止…（已转写的部分会保留）');
+    return;
+  }
   if (!currentFile) return;
   if (subtitles.length > 0 && !confirm('已有字幕，本地转写会覆盖，继续？')) return;
   const btn = document.getElementById('local-transcribe-btn');
-  btn.disabled = true;
+  localTransRunning = true;
+  localTransCancel = false;
+  btn.textContent = '⏹ 停止转写';
+  btn.classList.add('active');
   document.getElementById('transcribe-btn').disabled = true;
+  const t0 = Date.now();
   try {
-    setTranscribeStatus('⏳ 正在加载本地转写模型（首次约 40MB，之后有缓存）…');
+    setTranscribeStatus('⏳ 正在加载本地转写模型（首次需下载，之后有缓存）…');
     const asr = await ensureLocalWhisper(p => {
       if (p && p.status === 'progress' && p.file && p.file.endsWith('.onnx')) {
         setTranscribeStatus(`⏳ 下载模型 ${Math.round(p.progress || 0)}%…`);
@@ -1557,36 +1848,64 @@ async function doLocalTranscribe() {
     });
     setTranscribeStatus('⏳ 正在解码音频…');
     const audio = await get16kAudio();
-    const durMin = Math.round(audio.length / 16000 / 60 * 10) / 10;
-    if (durMin > 20 && !confirm(`音频长 ${durMin} 分钟，本地转写预计需要 ${Math.round(durMin)}–${Math.round(durMin*2)} 分钟。\n长材料建议先「静音切分」或用 API 转写。仍要本地转写吗？`)) {
-      setTranscribeStatus('已取消');
-      btn.disabled = false;
-      document.getElementById('transcribe-btn').disabled = false;
-      return;
-    }
-    setTranscribeStatus(`⏳ 本地转写中（音频 ${durMin} 分钟，耗时约为音频时长的 0.5–2 倍，页面请勿关闭）…`);
-    const t0 = Date.now();
-    const out = await asr(audio, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
-    const chunks = (out.chunks || []).filter(c => c.text && c.text.trim());
-    if (chunks.length === 0 && out.text && out.text.trim()) {
-      subtitles = [{ start: 0, end: audio.length / 16000, text: out.text.trim(), zh: '' }];
-    } else {
-      subtitles = chunks.map(c => ({
-        start: (c.timestamp && c.timestamp[0] != null) ? c.timestamp[0] : 0,
-        end: (c.timestamp && c.timestamp[1] != null) ? c.timestamp[1] : audio.length / 16000,
-        text: c.text.trim(),
-        zh: ''
-      }));
+    const SR = 16000;
+    const totalMin = Math.round(audio.length / SR / 60 * 10) / 10;
+    const PIECE = 115 * SR, OVER = 5 * SR, CUT = 2.5;   // 每段115s+5s重叠，重叠中线切词
+    const totalPieces = Math.max(1, Math.ceil(audio.length / PIECE));
+    const allWords = [];
+    subtitles = [];
+    for (let p = 0; p < totalPieces; p++) {
+      if (localTransCancel) break;
+      const s0 = p * PIECE;
+      const seg = audio.subarray(s0, Math.min(audio.length, s0 + PIECE + OVER));
+      const off = s0 / SR;
+      let out;
+      // Worker(proxy) 模式不支持词级时间戳：失败一次就记住，后续段直接用句级
+      // （卡拉OK高亮会自动改用词长估算，观感几乎无差）
+      if (wordTsSupported) {
+        try {
+          out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'word' });
+        } catch (e1) {
+          wordTsSupported = false;
+          out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+        }
+      } else {
+        out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+      }
+      const lowCut = p === 0 ? -1 : CUT;
+      const highCut = (s0 + PIECE + OVER < audio.length) ? (PIECE / SR + CUT) : Infinity;
+      for (const c of (out.chunks || [])) {
+        if (!c.text || !c.text.trim()) continue;
+        const st = (c.timestamp && c.timestamp[0] != null) ? c.timestamp[0] : 0;
+        const en = (c.timestamp && c.timestamp[1] != null) ? c.timestamp[1] : st + 0.3;
+        if (st <= lowCut || st >= highCut) continue;   // 去掉重叠区的重复词
+        allWords.push({ text: c.text, timestamp: [st + off, en + off] });
+      }
+      // 每段完成立即更新字幕，可以边转边练
+      subtitles = wordsToSentences(allWords, (s0 + seg.length) / SR);
+      // 句级模式下"词"其实是整句：删掉伪词级数据，让卡拉OK走词长估算
+      if (!wordTsSupported) subtitles.forEach(s => { delete s.words; });
+      saveSubtitles();
+      renderSubtitleList();
+      const doneMin = Math.min(Math.round((s0 + PIECE) / SR / 60 * 10) / 10, totalMin);
+      if (p < totalPieces - 1) {
+        setTranscribeStatus(`⏳ 已转写 ${doneMin}/${totalMin} 分钟（${subtitles.length} 句）——已出的字幕可以先点句练习，再点一次按钮可停止`);
+      }
     }
     saveSubtitles();
-    setTranscribeStatus(`✓ 本地转写完成，共 ${subtitles.length} 句（耗时 ${Math.round((Date.now() - t0) / 1000)} 秒，已自动保存）`);
     renderSubtitleList();
-    showToast('本地转写完成！');
+    const secs = Math.round((Date.now() - t0) / 1000);
+    setTranscribeStatus(localTransCancel
+      ? `⏹ 已停止，保留前 ${subtitles.length} 句（已自动保存）`
+      : `✓ 本地转写完成，共 ${subtitles.length} 句（耗时 ${secs} 秒，已自动保存）`);
+    showToast(localTransCancel ? '已停止，前面的字幕已保留' : '本地转写完成！');
   } catch (e) {
     setTranscribeStatus('✕ 本地转写失败：' + e.message);
     showToast('本地转写失败：' + e.message, 4500);
   }
-  btn.disabled = false;
+  localTransRunning = false;
+  btn.textContent = '🆓 本地转写（免费·英文）';
+  btn.classList.remove('active');
   document.getElementById('transcribe-btn').disabled = false;
 }
 
@@ -1701,58 +2020,177 @@ function setSubMode(mode) {
   renderSubtitleList();
 }
 
-/* 点击当前字幕里的词 → 打开 Word Lab 查词（同目录下 english-word-lab.html） */
-document.getElementById('sub-en').addEventListener('click', e => {
-  // 盲听且未显示时，点击只用于显示字幕，不触发查词
-  if (blindMode && !document.getElementById('current-subtitle').classList.contains('revealed')) return;
-  const w = e.target.closest('.lookup-w');
-  if (!w) return;
-  const word = w.textContent.replace(/^[^A-Za-z'-]+|[^A-Za-z'-]+$/g, '');
-  if (!word) return;
-  const sentence = lastActiveSub ? lastActiveSub.text : '';
-  try { localStorage.setItem('ewl_pending_lookup', JSON.stringify({ word, sentence })); } catch (err) {}
+/* ── 页内查词弹窗：离线词典（WordNet + 音标），秒开不跳页 ── */
+let dictsLoadP = null;
+function ensureShadowDicts() {
+  if (!dictsLoadP) {
+    dictsLoadP = Promise.all([
+      loadScriptOnce('wn-dict-en.js').catch(() => {}),
+      loadScriptOnce('ipa-dict-en.js').catch(() => {}),
+    ]);
+  }
+  return dictsLoadP;
+}
+function dpLemma(w) {
+  const D = window.WN_DICT;
+  if (!D) return null;
+  if (D[w]) return w;
+  const cands = [];
+  if (/ies$/.test(w)) cands.push(w.slice(0, -3) + 'y');
+  if (/s$/.test(w) && !/ss$/.test(w)) cands.push(w.slice(0, -1));
+  if (/ied$/.test(w)) cands.push(w.slice(0, -3) + 'y');
+  if (/ed$/.test(w)) cands.push(w.slice(0, -2), w.slice(0, -1), w.slice(0, -2) + 'e');
+  if (/ing$/.test(w)) cands.push(w.slice(0, -3), w.slice(0, -3) + 'e');
+  return cands.find(c => c.length >= 2 && D[c]) || null;
+}
+async function showDictPopup(word, sentence, x, y) {
+  const pop = document.getElementById('dict-pop');
+  pop.style.display = 'block';
+  pop.style.left = Math.min(x, window.innerWidth - 340) + 'px';
+  pop.style.top = Math.min(y + 12, window.innerHeight - 300) + 'px';
+  pop.innerHTML = '<div style="color:#888;">📖 查询中…</div>';
+  await ensureShadowDicts();
+  const w = word.toLowerCase();
+  const key = (window.WN_DICT && window.WN_DICT[w]) ? w : dpLemma(w);
+  const entry = key && window.WN_DICT ? window.WN_DICT[key] : null;
+  const ipa = window.IPA_DICT ? (window.IPA_DICT[key || w] || window.IPA_DICT[w] || '') : '';
+  let html = `<button class="dp-close" onclick="document.getElementById('dict-pop').style.display='none'">✕</button>
+    <span class="dp-word">${escHtml(key || word)}</span>${ipa ? `<span class="dp-ipa">/${escHtml(ipa)}/</span>` : ''}
+    <button class="btn" style="padding:1px 7px;font-size:12px;margin-left:6px;" onclick="speakWord('${escHtml(key || word)}')">🔊</button>`;
+  if (key && key !== w) html += `<span style="color:#999;font-size:11px;margin-left:6px;">← ${escHtml(word)}</span>`;
+  if (entry) {
+    entry.slice(0, 2).forEach(sense => {
+      html += `<div style="margin-top:6px;"><span class="dp-pos">${escHtml(sense[0])}</span> ${escHtml(sense[1])}</div>`;
+    });
+    const syns = entry[0][3] || [];
+    if (syns.length) html += '<div style="margin-top:5px;">' + syns.slice(0, 4).map(s => `<span class="dp-syn">${escHtml(s)}</span>`).join('') + '</div>';
+  } else {
+    html += `<div style="margin-top:8px;color:#888;">离线词典未收录${window.WN_DICT ? '' : '（wn-dict-en.js 未找到，请与本页面放同一文件夹）'}</div>`;
+  }
+  html += `<div class="dp-row">
+    <button class="btn" style="font-size:12px;padding:4px 10px;" onclick="deepLookup('${escHtml(word)}')">✨ AI 深度解释（Word Lab）</button>
+  </div>`;
+  pop.innerHTML = html;
+  pop.dataset.sentence = sentence || '';
+}
+function speakWord(w) {
+  if ('speechSynthesis' in window) {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(w);
+    u.lang = 'en-US'; u.rate = 0.92;
+    speechSynthesis.speak(u);
+  }
+}
+function deepLookup(word) {
+  const sentence = document.getElementById('dict-pop').dataset.sentence || '';
+  try { localStorage.setItem('ewl_pending_lookup', JSON.stringify({ word, sentence })); } catch (e) {}
   window.open('english-word-lab.html', '_blank');
+}
+document.addEventListener('click', e => {
+  const pop = document.getElementById('dict-pop');
+  if (pop.style.display === 'block' && !pop.contains(e.target) && !e.target.closest('.kw') && !e.target.closest('.lookup-w')) {
+    pop.style.display = 'none';
+  }
+});
+
+/* 点词查义：当前字幕栏 + 字幕列表 + 视频字幕 统一委托 */
+function wordClickHandler(e, sentenceGetter) {
+  const el = e.target.closest('.kw, .lookup-w');
+  if (!el) return false;
+  const word = el.textContent.replace(/^[^A-Za-z'-]+|[^A-Za-z'-]+$/g, '');
+  if (!word) return false;
+  e.stopPropagation();
+  showDictPopup(word, sentenceGetter(el), e.clientX, e.clientY);
+  return true;
+}
+document.getElementById('sub-en').addEventListener('click', e => {
+  if (blindMode && !document.getElementById('current-subtitle').classList.contains('revealed')) return;
+  wordClickHandler(e, () => lastActiveSub ? lastActiveSub.text : '');
+});
+document.getElementById('subtitle-list').addEventListener('click', e => {
+  if (blindMode) return;
+  wordClickHandler(e, el => {
+    const row = el.closest('.sub-item');
+    const s = row ? subtitles[Number(row.dataset.si)] : null;
+    return s ? s.text : '';
+  });
 });
 
 function updateCurrentSubtitle(t) {
   if (subMode === 'none' || subtitles.length === 0) return;
-  const seg = subtitles.find(s => t >= s.start && t <= s.end);
+  const segIdx = findSubIdxAt(t);
+  const seg = segIdx >= 0 ? subtitles[segIdx] : null;
   const enEl = document.getElementById('sub-en');
   const zhEl = document.getElementById('sub-zh');
   if (seg) {
     if (seg !== lastActiveSub) {
-      // 每个词包成可点击 span：点击可跳转 Word Lab 查词
-      enEl.innerHTML = seg.text.split(/(\s+)/).map(tok =>
-        /[A-Za-z]/.test(tok) ? `<span class="lookup-w" title="点击查词">${escHtml(tok)}</span>` : escHtml(tok)
-      ).join('');
+      // 词级渲染：每个词都是可高亮(卡拉OK)、可点击查义的 span
+      const wh = wordSpansHtml(seg.text);
+      enEl.innerHTML = wh;
       zhEl.textContent = subMode === 'bilingual' ? (seg.zh || '') : '';
-      // 视频内嵌字幕
+      // 视频内嵌字幕（同样逐词）
       const cap = document.getElementById('video-caption');
-      cap.innerHTML = `<span class="cap-en">${escHtml(seg.text)}</span>` +
+      cap.innerHTML = `<span class="cap-en">${wh}</span>` +
         (subMode === 'bilingual' && seg.zh ? `<div class="cap-zh"><span>${escHtml(seg.zh)}</span></div>` : '');
       lastActiveSub = seg;
+      kwPrevIdx = -1;
       const wrap = document.getElementById('subtitle-list-wrap');
-      document.querySelectorAll('.sub-item').forEach((el, i) => {
-        const active = subtitles[i] === seg;
-        el.classList.toggle('active', active);
-        if (active) {
-          // 让当前句始终在列表可视区内
-          const top = el.offsetTop;
-          if (top < wrap.scrollTop + 20 || top > wrap.scrollTop + wrap.clientHeight - 50) {
-            wrap.scrollTop = top - wrap.clientHeight / 2;
-          }
+      // 局部行高亮：直接定位新旧两行，不再遍历整个列表
+      if (activeRowEl) activeRowEl.classList.remove('active');
+      const activeRow = document.querySelector(`.sub-item[data-si="${segIdx}"]`);
+      activeRowEl = activeRow;
+      if (activeRow) {
+        activeRow.classList.add('active');
+        // 让当前句始终在列表可视区内
+        const top = activeRow.offsetTop;
+        if (top < wrap.scrollTop + 20 || top > wrap.scrollTop + wrap.clientHeight - 50) {
+          wrap.scrollTop = top - wrap.clientHeight / 2;
         }
-      });
+      }
+      // 缓存当前句的词元素（字幕栏 / 视频字幕 / 列表行），供卡拉OK逐帧点亮
+      kwSets = [
+        [...enEl.querySelectorAll('.kw')],
+        [...cap.querySelectorAll('.kw')],
+        activeRow ? [...activeRow.querySelectorAll('.kw')] : null,
+      ];
     }
   } else {
     enEl.textContent = '';
     zhEl.textContent = '';
     if (lastActiveSub !== null) {
       lastActiveSub = null;
+      kwSets = [];
+      kwPrevIdx = -1;
       document.getElementById('video-caption').innerHTML = '';
-      document.querySelectorAll('.sub-item').forEach(el => el.classList.remove('active'));
+      if (activeRowEl) { activeRowEl.classList.remove('active'); activeRowEl = null; }
     }
   }
+}
+
+/* ── 遮挡原片烧录字幕 ── */
+function toggleSubMask() {
+  const mask = document.getElementById('sub-mask');
+  const on = mask.style.display !== 'block';
+  mask.style.display = on ? 'block' : 'none';
+  document.getElementById('sub-mask-btn').classList.toggle('active', on);
+  document.getElementById('sub-mask-h').style.display = on ? '' : 'none';
+  localStorage.setItem('shadow_sub_mask', on ? '1' : '');
+  if (on) {
+    setSubMaskHeight(localStorage.getItem('shadow_sub_mask_h') || 18);
+    showToast('已用黑条盖住画面底部：拖旁边的滑块调高度，正好盖住原字幕即可');
+  }
+}
+function setSubMaskHeight(v) {
+  document.getElementById('sub-mask').style.height = v + '%';
+  document.getElementById('sub-mask-h').value = v;
+  localStorage.setItem('shadow_sub_mask_h', v);
+}
+// 恢复上次的遮挡设置
+if (localStorage.getItem('shadow_sub_mask') === '1') {
+  document.getElementById('sub-mask').style.display = 'block';
+  document.getElementById('sub-mask-btn').classList.add('active');
+  document.getElementById('sub-mask-h').style.display = '';
+  setSubMaskHeight(localStorage.getItem('shadow_sub_mask_h') || 18);
 }
 
 /* ── 盲听模式：字幕全部模糊，点击某句临时显示 ── */
@@ -1775,31 +2213,116 @@ document.getElementById('subtitle-list').addEventListener('click', e => {
 function renderSubtitleList() {
   const wrap = document.getElementById('subtitle-list-wrap');
   const list = document.getElementById('subtitle-list');
-  if (subtitles.length === 0) { wrap.style.display = 'none'; return; }
+  // 重建列表前先把内嵌的练习面板搬回原位，避免被 innerHTML 销毁
+  const ppanel = document.getElementById('practice-panel');
+  if (ppanel && list.contains(ppanel)) document.getElementById('practice-home').appendChild(ppanel);
+  activeRowEl = null;      // 行元素即将重建，旧引用作废
+  lastActiveSub = null;    // 强制下一次 timeupdate 重新挂载高亮与卡拉OK
+  if (subtitles.length === 0) {
+    if (!currentFile) { wrap.style.display = 'none'; return; }
+    // 空状态引导：文件已加载但还没字幕
+    wrap.style.display = 'block';
+    list.innerHTML = `
+      <div style="text-align:center;padding:28px 10px;color:var(--text-muted);font-size:13px;line-height:2;">
+        还没有字幕。生成后即可点句跳转、逐词高亮、逐句跟读：<br>
+        <button class="btn" onclick="doLocalTranscribe()" style="background:var(--accent);color:#fff;border-color:var(--accent);">🆓 本地转写（免费）</button>
+        <button class="btn" onclick="loadSubtitleFile()">导入 SRT 字幕</button>
+        <button class="btn" onclick="doSilenceSplit()">🔇 静音切分（不转写）</button>
+      </div>`;
+    return;
+  }
   wrap.style.display = 'block';
   list.innerHTML = '';
   const counts = getPracticeCounts();
   subtitles.forEach((s, i) => {
+    if (favOnly && !favs.has(i)) return;
     const n = counts[i] || 0;
     const div = document.createElement('div');
     div.className = 'sub-item';
+    div.dataset.si = i;
     div.innerHTML = `
-      <span class="sub-time">${fmtTime(s.start)} – ${fmtTime(s.end)}</span>
+      <span class="sub-idx">${i + 1}</span>
+      <span class="sub-time">${fmtTime(s.start)}</span>
       <div class="sub-text">
-        <div>${escHtml(s.text)} ${n ? `<span class="practice-count-badge">🎤×${n}</span>` : ''}</div>
+        <div>${wordSpansHtml(s.text)} ${n ? `<span class="practice-count-badge">🎤×${n}</span>` : ''}</div>
         ${subMode === 'bilingual' && s.zh ? `<div class="zh">${escHtml(s.zh)}</div>` : ''}
       </div>
-      <button class="btn" style="padding:4px 8px;font-size:11px;background:var(--accent);color:#fff;border-color:var(--accent);" onclick="startPractice(${i});event.stopPropagation();" title="进入逐句跟读练习">🎤 跟读</button>
-      <button class="btn" style="padding:4px 8px;font-size:11px;" onclick="selectSubtitle(${i},event)">选段</button>
+      <button class="fav-btn ${favs.has(i) ? 'faved' : ''}" onclick="toggleFav(${i},event)" title="收藏这句">${favs.has(i) ? '⭐' : '☆'}</button>
+      <button class="btn" style="padding:4px 8px;font-size:11px;background:var(--accent);color:#fff;border-color:var(--accent);" onclick="startPractice(${i});event.stopPropagation();" title="进入逐句跟读练习">🎤</button>
+      <button class="btn" style="padding:4px 8px;font-size:11px;" onclick="selectSubtitle(${i},event)" title="选为循环区间">⛶</button>
       <button class="btn" style="padding:4px 8px;font-size:11px;" onclick="editSubtitle(${i},event)" title="修改转写错误">✎</button>
     `;
     div.addEventListener('click', (e) => {
       if (e.target.tagName === 'BUTTON') return;
+      if (e.target.classList.contains('kw')) return;   // 点词=查义，不跳转
       playSentence(i);   // 点句即播（配合播放模式：连续 / 句末停 / 单句循环）
     });
     list.appendChild(div);
   });
   renderPracticeStats();
+  updateFavBtn();
+  placePracticePanel();   // 若正在句子练习，把面板重新嵌回当前行
+}
+
+/* ── 收藏句子 ── */
+function favKey() { return 'shadow_favs_' + fileKey(); }
+function loadFavs() {
+  favs = new Set();
+  try { JSON.parse(localStorage.getItem(favKey()) || '[]').forEach(i => favs.add(i)); } catch (e) {}
+}
+function saveFavs() {
+  try { localStorage.setItem(favKey(), JSON.stringify([...favs])); } catch (e) {}
+}
+function toggleFav(i, e) {
+  if (e) e.stopPropagation();
+  if (favs.has(i)) favs.delete(i); else favs.add(i);
+  saveFavs();
+  // 局部更新该行，避免全列表重建
+  const row = document.querySelector(`.sub-item[data-si="${i}"]`);
+  if (row) {
+    const b = row.querySelector('.fav-btn');
+    if (b) { b.classList.toggle('faved', favs.has(i)); b.textContent = favs.has(i) ? '⭐' : '☆'; }
+    if (favOnly && !favs.has(i)) row.remove();
+  }
+  updateFavBtn();
+}
+
+/* 局部更新某行的练习次数徽标 */
+function bumpRowBadge(i) {
+  const row = document.querySelector(`.sub-item[data-si="${i}"]`);
+  if (!row) return;
+  const n = getPracticeCounts()[i] || 0;
+  let badge = row.querySelector('.practice-count-badge');
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = 'practice-count-badge';
+    const txt = row.querySelector('.sub-text div');
+    if (txt) txt.appendChild(document.createTextNode(' ')), txt.appendChild(badge);
+  }
+  badge.textContent = `🎤×${n}`;
+}
+function toggleFavOnly() {
+  if (!favOnly && favs.size === 0) { showToast('还没有收藏。点每句右侧的 ☆ 收藏'); return; }
+  favOnly = !favOnly;
+  document.getElementById('fav-filter-btn').classList.toggle('active', favOnly);
+  document.getElementById('fav-export-btn').style.display = favOnly ? '' : 'none';
+  renderSubtitleList();
+}
+function updateFavBtn() {
+  const b = document.getElementById('fav-filter-btn');
+  if (b) b.textContent = `⭐ 收藏${favs.size ? '(' + favs.size + ')' : ''}`;
+}
+function exportFavs() {
+  const items = [...favs].sort((a, b) => a - b).map(i => subtitles[i]).filter(Boolean);
+  if (!items.length) return;
+  const text = items.map((s, k) =>
+    `${k + 1}. [${fmtTime(s.start)}] ${s.text}${s.zh ? '\n   ' + s.zh : ''}`).join('\n\n');
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (currentFileName.replace(/\.[^.]+$/, '') || 'favorites') + '_收藏句子.txt';
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function editSubtitle(i, e) {
@@ -1856,8 +2379,13 @@ function onSubFileLoad(e) {
         }
       } catch(err) { showToast('JSON 格式错误'); return; }
     } else {
-      subtitles = parseSRT(text);   // 兼容 SRT 与 VTT
+      const rawParsed = parseSRT(text);   // 兼容 SRT 与 VTT
+      subtitles = cleanSubtitles(rawParsed);
+      if (rawParsed.length - subtitles.length > 2) {
+        showToast(`已自动清理滚动重复字幕：${rawParsed.length} 条 → ${subtitles.length} 句`);
+      }
     }
+    subtitles = cleanSubtitles(subtitles);
     saveSubtitles();
     setTranscribeStatus(`✓ 已导入 ${subtitles.length} 句字幕`);
     renderSubtitleList();
@@ -1869,19 +2397,60 @@ function onSubFileLoad(e) {
 
 function parseSRT(text) {
   // 兼容 SRT（逗号毫秒）与 WebVTT（点毫秒 + 文件头）
+  // 逐行扫描而非按空行分块——yt-dlp 转的 SRT 时间行和文本间常有空行，分块法会丢句
   const body = text.replace(/^﻿/, '').replace(/^WEBVTT[^\n]*\n(?:[^\n]+\n)*\n/, '');
-  const blocks = body.trim().split(/\n\s*\n+/);
-  return blocks.map(block => {
-    const lines = block.split('\n');
-    const timeLine = lines.find(l => l.includes('-->'));
-    if (!timeLine) return null;
-    const [startStr, endRaw] = timeLine.split('-->').map(s => s.trim());
-    const endStr = endRaw.split(/\s+/)[0];   // 去掉 VTT 的 align 等设置
-    const start = srtTimeToSec(startStr);
-    const end = srtTimeToSec(endStr);
-    const textLines = lines.slice(lines.indexOf(timeLine) + 1).join(' ').trim();
-    return { start, end, text: textLines, zh: '' };
-  }).filter(Boolean);
+  const lines = body.split(/\r?\n/);
+  const cues = [];
+  let cur = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.includes('-->')) {
+      if (cur) cues.push(cur);
+      const [a, b] = line.split('-->').map(s => s.trim());
+      cur = { start: srtTimeToSec(a), end: srtTimeToSec(b.split(/\s+/)[0]), textLines: [] };
+    } else if (cur) {
+      const t = line.trim();
+      // 下一条的纯序号行跳过
+      if (/^\d+$/.test(t) && lines[i + 1] && lines[i + 1].includes('-->')) continue;
+      if (t !== '') cur.textLines.push(t);
+    }
+  }
+  if (cur) cues.push(cur);
+  return cues.filter(c => c.textLines.length)
+    .map(c => ({ start: c.start, end: c.end, text: c.textLines.join('\n'), zh: '' }));
+}
+
+/* YouTube 自动字幕是"滚动式"：每条都重复上一条的内容再加新词。
+   逐条对比去重，还原成干净的"一句一条" */
+function cleanSubtitles(raw) {
+  const out = [];
+  for (const s of raw) {
+    const origText = String(s.text || '');
+    let lines = origText.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    if (!lines.length) continue;
+    const prev = out[out.length - 1];
+    if (prev) {
+      // 首行与上一条末行相同 → 去掉重复行
+      while (lines.length && prev.lines.length && lines[0] === prev.lines[prev.lines.length - 1]) lines.shift();
+      if (!lines.length) { prev.end = Math.max(prev.end, s.end); continue; }
+      const joined = lines.join(' ');
+      const prevJoined = prev.lines.join(' ');
+      if (joined === prevJoined) { prev.end = Math.max(prev.end, s.end); continue; }
+      // 整体前缀滚动：本条以上一条全文开头 → 只留新增部分
+      if (prevJoined.length > 10 && joined.startsWith(prevJoined + ' ')) {
+        lines = [joined.slice(prevJoined.length).trim()];
+      }
+    }
+    // 文本未被修改时保留词级时间戳（卡拉OK数据）
+    const untouched = lines.join(' ') === origText.replace(/\s+/g, ' ').trim();
+    out.push({ start: s.start, end: s.end, lines, zh: s.zh || '', words: untouched ? s.words : undefined });
+  }
+  // 时间修正：结束不晚于下一条开始；过短的句子（滚动字幕碎片）延长到下一条开始
+  for (let i = 0; i < out.length - 1; i++) {
+    if (out[i].end > out[i + 1].start) out[i].end = out[i + 1].start;
+    if (out[i].end - out[i].start < 0.4) out[i].end = out[i + 1].start;
+  }
+  return out.map(s => ({ start: s.start, end: s.end, text: s.lines.join(' '), zh: s.zh, words: s.words }));
 }
 
 function srtTimeToSec(t) {
@@ -2084,8 +2653,14 @@ function setPlayMode(mode) {
 }
 
 function enterPracticeHere() {
-  if (!ws || subtitles.length === 0) { showToast('需要先有字幕（转写或导入）'); return; }
-  startPractice(Math.max(subIndexAt(ws.getCurrentTime()), 0));
+  if (!ws) return;
+  if (subtitles.length > 0) {
+    startPractice(Math.max(subIndexAt(ws.getCurrentTime()), 0));
+  } else if (cutSegments.length > 0) {
+    startPracticeSeg(Math.max(cutIndexAt(ws.getCurrentTime()), 0));   // 没字幕就按片段练
+  } else {
+    showToast('需要先有字幕（转写/导入 SRT）或先「静音切分」切段');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2241,6 +2816,22 @@ function renderPracticeStats() {
   el.textContent = '🎤 ' + parts.join(' · ');
 }
 
+/* 练习面板位置：跟读句子 → 嵌入字幕列表对应行下方；跟读片段/退出 → 回到原位 */
+function placePracticePanel() {
+  const panel = document.getElementById('practice-panel');
+  const home = document.getElementById('practice-home');
+  if (practice && practice.idx >= 0) {
+    const row = document.querySelector(`.sub-item[data-si="${practice.idx}"]`);
+    if (row) {
+      row.insertAdjacentElement('afterend', panel);
+      panel.classList.add('inline');
+      return;
+    }
+  }
+  panel.classList.remove('inline');
+  home.appendChild(panel);
+}
+
 function startPractice(idx) {
   const s = subtitles[idx];
   if (!s || !ws || !duration) return;
@@ -2248,6 +2839,7 @@ function startPractice(idx) {
   clearRegion();
   practice = { start: s.start, end: s.end, text: s.text, zh: s.zh || '', idx, label: `第 ${idx + 1}/${subtitles.length} 句`, recUrl: null };
   renderPractice();
+  placePracticePanel();
   practicePlay();
 }
 
@@ -2256,8 +2848,10 @@ function startPracticeSeg(i) {
   if (!c || !ws || !duration) return;
   if (autoShadowOn) stopAutoShadow();
   clearRegion();
-  practice = { start: c.start, end: c.end, text: c.text || c.label, zh: '', idx: -1, label: c.label, recUrl: null };
+  practice = { start: c.start, end: c.end, text: c.text || c.label, zh: '', idx: -1, cutIdx: i,
+               label: `${c.label}（第 ${i + 1}/${cutSegments.length} 段）`, recUrl: null };
   renderPractice();
+  placePracticePanel();
   practicePlay();
 }
 
@@ -2318,7 +2912,7 @@ async function practiceRecord() {
       const label = (practice.idx >= 0 ? `句 ${practice.idx + 1} ` : practice.label + ' ') + (practice.text || '').slice(0, 20);
       await saveRecording(blob, label, { start: practice.start, end: practice.end });
       setPracticeStatus('✓ 录好了 → 按 C 对比听 / 📊 评分看漏读错读');
-      if (practice.idx >= 0) renderSubtitleList();
+      if (practice.idx >= 0) bumpRowBadge(practice.idx);   // 局部更新，不重建列表（面板正嵌在行内）
       drawPracticeWaves(blob);
     }
   };
@@ -2356,11 +2950,22 @@ function practiceCompare() {
 
 function practiceNext() {
   if (!practice) return;
+  // 片段练习：在剪切片段之间移动
+  if (practice.cutIdx != null) {
+    if (practice.cutIdx < cutSegments.length - 1) startPracticeSeg(practice.cutIdx + 1);
+    else setPracticeStatus('🎉 已经是最后一段了');
+    return;
+  }
   if (practice.idx >= 0 && practice.idx < subtitles.length - 1) startPractice(practice.idx + 1);
-  else if (practice.idx === subtitles.length - 1) { setPracticeStatus('🎉 已经是最后一句了'); }
+  else if (practice.idx >= 0 && practice.idx === subtitles.length - 1) setPracticeStatus('🎉 已经是最后一句了');
 }
 function practicePrev() {
   if (!practice) return;
+  if (practice.cutIdx != null) {
+    if (practice.cutIdx > 0) startPracticeSeg(practice.cutIdx - 1);
+    else setPracticeStatus('已经是第一段了');
+    return;
+  }
   if (practice.idx > 0) startPractice(practice.idx - 1);
 }
 
@@ -2372,6 +2977,7 @@ function exitPractice() {
   abState = null;
   if (ws && ws.isPlaying()) ws.pause();
   document.getElementById('practice-panel').style.display = 'none';
+  placePracticePanel();   // 面板归位
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2685,7 +3291,10 @@ async function loadFromUrl() {
   if (!url) return;
   if (!/^https?:\/\//i.test(url)) { showToast('请输入 http(s) 开头的直链'); return; }
   if (/youtube\.com|youtu\.be|bilibili\.com|xiaoyuzhoufm|podcasts?\./i.test(url)) {
-    showToast('该类链接是节目页而非媒体文件，请用 shadow_reader 完整版（启动.bat）下载', 5000);
+    // 显示分步指引面板（比一闪而过的 toast 清楚得多）
+    const g = document.getElementById('yt-guide');
+    g.style.display = 'block';
+    g.scrollIntoView({ block: 'center', behavior: 'smooth' });
     return;
   }
   showToast('⏳ 正在下载媒体…');
@@ -2938,7 +3547,10 @@ function clearCuts() {
 // ═══════════════════════════════════════════════════════
 let ffmpegObj = null;
 let ffWrittenKey = '';
-function setCutStatus(m) { document.getElementById('cut-status').textContent = m; }
+function setCutStatus(m) {
+  document.getElementById('cut-status').textContent = m;
+  if (m) document.getElementById('cut-panel').classList.remove('collapsed');
+}
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -3101,6 +3713,11 @@ function resetAll() {
   renderCutList();
   document.getElementById('video-wrap').style.display = 'none';
   document.getElementById('video-el').removeAttribute('src');
+  document.getElementById('sub-en').innerHTML = '';
+  document.getElementById('sub-zh').textContent = '';
+  document.getElementById('video-caption').innerHTML = '';
+  kwSets = [];
+  kwPrevIdx = -1;
   currentFile = null;
   document.getElementById('main').classList.remove('open');
   document.getElementById('upload-zone').style.display = 'block';
@@ -3127,8 +3744,27 @@ function escHtml(s) {
 //  INIT
 // ═══════════════════════════════════════════════════════
 loadApiKeys();
+document.getElementById('karaoke-btn').classList.toggle('active', karaokeEnabled);   // 按钮与记忆状态同步
 document.getElementById('whisper-model-sel').value = currentWhisperModel();
+document.getElementById('auto-transcribe-chk').checked = localStorage.getItem('shadow_auto_transcribe') === '1';
 renderRecentFiles();
+
+// 右栏面板可折叠（点标题收起/展开，状态记忆；波形和历史片段默认收起）
+['sub-mode-wrap', 'transcribe-panel', 'waveform-wrap', 'cut-panel', 'record-panel', 'saved-wrap'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('rp-collapsible');
+  const h3 = el.querySelector('h3');
+  if (!h3) return;
+  const saved = localStorage.getItem('shadow_fold_' + id);
+  const defaultCollapsed = (id === 'waveform-wrap' || id === 'saved-wrap');
+  if (saved === '1' || (saved === null && defaultCollapsed)) el.classList.add('collapsed');
+  h3.addEventListener('click', e => {
+    if (e.target.tagName === 'BUTTON') return;
+    el.classList.toggle('collapsed');
+    localStorage.setItem('shadow_fold_' + id, el.classList.contains('collapsed') ? '1' : '0');
+  });
+});
 </script>
 </body>
 </html>
