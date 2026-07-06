@@ -626,7 +626,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707</span>
+    <span>Shadow Reading Lab · v20260707b</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -1455,22 +1455,22 @@ function initWaveSurfer(file, pre) {
         if (nxt && nxt.start - t > 0.5) seekSec(nxt.start - 0.1);
       }
     }
-    if (loopSentenceMode && subtitles.length > 0 && ws.isPlaying()) {
+    if (loopSentenceMode && ws.isPlaying()) {
       if (loopSegRange && t >= loopSegRange[1] - 0.05) {
         seekSec(loopSegRange[0]);
-      } else {
-        const seg = subtitles.find(s => t >= s.start && t < s.end - 0.08);
-        if (seg) loopSegRange = [seg.start, seg.end];
+      } else if (!loopSegRange || t < loopSegRange[0] || t >= loopSegRange[1]) {
+        const b = currentBoundsAt(t);
+        if (b) loopSegRange = b;
       }
       return;
     }
-    if (sentencePause && subtitles.length > 0 && ws.isPlaying()) {
+    if (sentencePause && ws.isPlaying()) {
       if (pauseSegEnd !== null && t >= pauseSegEnd - 0.05) {
         ws.pause();
         // 自动继续模式：留出 1.5×句长的跟读时间后自动播下一句
         if (document.getElementById('pause-resume-sel').value === 'auto') {
-          const seg = subtitles.find(s => Math.abs(s.end - pauseSegEnd) < 0.1);
-          const waitMs = seg ? Math.max((seg.end - seg.start) * 1500, 1500) : 2500;
+          const b = currentBoundsAt(Math.max(pauseSegEnd - 0.2, 0));
+          const waitMs = b ? Math.max((b[1] - b[0]) * 1500, 1500) : 2500;
           clearTimeout(pauseResumeTimer);
           pauseResumeTimer = setTimeout(() => {
             if (sentencePause && ws && !ws.isPlaying() && !practice && !autoShadowOn) safePlay();
@@ -1478,8 +1478,8 @@ function initWaveSurfer(file, pre) {
         }
         pauseSegEnd = null;
       } else {
-        const seg = subtitles.find(s => t >= s.start && t < s.end - 0.08);
-        if (seg) pauseSegEnd = seg.end;
+        const b = currentBoundsAt(t);
+        if (b && t < b[1] - 0.08) pauseSegEnd = b[1];
       }
     }
   });
@@ -2850,8 +2850,28 @@ function setPlayMode(mode) {
   loopSegRange = null;
   clearTimeout(pauseResumeTimer);
   document.getElementById('pause-resume-sel').style.display = sentencePause ? '' : 'none';
-  if (mode === 'pause') showToast('每句播完自动停，按空格继续（可设自动继续）');
-  if (mode === 'loop') showToast('单句循环：当前句无限重复，点其他句或切换模式退出');
+  // "每句停一下"/"单句循环" 需要句子边界数据（字幕或剪切片段）才能生效，
+  // 否则选了也没有任何变化——之前用户遇到的"跳过空白没反应"就是同一个根因
+  const hasBounds = subtitles.length > 0 || cutSegments.length > 0;
+  if (mode !== 'continuous' && !hasBounds) {
+    showToast('⚠️ 需要先有字幕（本地转写/导入 SRT）或「静音切分」出的片段，这个模式才会生效', 5000);
+    return;
+  }
+  if (mode === 'pause') showToast(subtitles.length ? '每句播完自动停，按空格继续（可设自动继续）' : '每段播完自动停（按片段边界，未转写字幕）');
+  if (mode === 'loop') showToast(subtitles.length ? '单句循环：当前句无限重复，点其他句或切换模式退出' : '单段循环：当前片段无限重复（未转写字幕，按剪切片段边界）');
+}
+
+/* 播放模式用的"当前句/片段"边界：优先字幕，没有字幕时退化用剪切片段（与导航按钮的兜底逻辑一致） */
+function currentBoundsAt(t) {
+  if (subtitles.length > 0) {
+    const idx = subIndexAt(t);
+    return idx >= 0 ? [subtitles[idx].start, subtitles[idx].end] : null;
+  }
+  if (cutSegments.length > 0) {
+    const idx = cutIndexAt(t);
+    return idx >= 0 ? [cutSegments[idx].start, cutSegments[idx].end] : null;
+  }
+  return null;
 }
 
 function enterPracticeHere() {
