@@ -645,7 +645,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707m</span>
+    <span>Shadow Reading Lab · v20260707n</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -2011,6 +2011,20 @@ async function ensureFFmpegInputReady() {
   }
   return { ff, ext };
 }
+// 整个转写过程共用同一个 AudioContext，不要每段都新建再关闭——
+// iOS Safari 对同时存在的 AudioContext 数量有限制，反复创建/关闭没有必要地增加风险，
+// 新建的 AudioContext 有时还需要用户手势才能正常"解锁"，能少建就少建
+let _decodeCtx = null;
+function getDecodeCtx() {
+  if (!_decodeCtx || _decodeCtx.state === 'closed') {
+    _decodeCtx = new AudioContext({ sampleRate: 16000 });
+  }
+  return _decodeCtx;
+}
+function closeDecodeCtx() {
+  if (_decodeCtx && _decodeCtx.state !== 'closed') { _decodeCtx.close().catch(() => {}); }
+  _decodeCtx = null;
+}
 async function decodeAudioChunk16k(startSec, durSec) {
   const { ff, ext } = await ensureFFmpegInputReady();
   const outName = 'chunk_' + Date.now() + '.wav';
@@ -2022,13 +2036,10 @@ async function decodeAudioChunk16k(startSec, durSec) {
   // 关键：AudioContext 默认用系统硬件采样率（常见 44.1k/48k），decodeAudioData 会按那个率重采样，
   // 即使 ffmpeg 已经输出 16k 的 wav 也会被"升采样"回硬件率——必须显式指定，否则数据被拉长，
   // Whisper 拿到的音频时长感知错乱，识别不出人声（表现为"转写完成但 0 句"）
-  const ctx = new AudioContext({ sampleRate: 16000 });
-  try {
-    const decoded = await ctx.decodeAudioData(ab);
-    return decoded.getChannelData(0);
-  } finally {
-    ctx.close();
-  }
+  const ctx = getDecodeCtx();
+  if (ctx.state === 'suspended') { try { await ctx.resume(); } catch (e) {} }
+  const decoded = await ctx.decodeAudioData(ab);
+  return decoded.getChannelData(0);
 }
 
 async function doLocalTranscribe() {
@@ -2122,6 +2133,7 @@ async function doLocalTranscribe() {
     setTranscribeStatus('✕ 本地转写失败：' + e.message);
     showToast('本地转写失败：' + e.message, 4500);
   }
+  closeDecodeCtx();
   localTransRunning = false;
   btn.textContent = '🆓 本地转写（免费·英文）';
   btn.classList.remove('active');
@@ -3389,6 +3401,7 @@ async function doSegmentTranscribe(startSec, endSec, cutIdx) {
     showToast('片段转写失败：' + e.message, 4500);
     return null;
   } finally {
+    closeDecodeCtx();
     segTransBusy = false;
   }
 }
