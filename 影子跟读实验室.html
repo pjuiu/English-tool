@@ -639,7 +639,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707d</span>
+    <span>Shadow Reading Lab · v20260707e</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -661,6 +661,10 @@
     <label>DeepSeek API Key</label>
     <input type="password" id="deepseek-key" placeholder="sk-..." />
     <input type="text" id="deepseek-url" placeholder="API Base URL，如 https://api.deepseek.com/v1" style="min-width:260px;" />
+  </div>
+  <div class="api-row">
+    <label title="部分播客托管方不允许网页直接读取音频字节，导致本地/API转写都失败；自建 CORS 代理可以绕开这个限制，尤其是手机端没法跑本地下载服务时">CORS 代理 Worker URL</label>
+    <input type="text" id="cors-proxy-url" placeholder="可选，如 https://xxx.workers.dev（部署方法见 cors-proxy-worker.js）" style="min-width:320px;" />
   </div>
   <div class="api-row">
     <button class="btn-sm" onclick="saveApiKeys()">保存密钥</button>
@@ -1195,12 +1199,14 @@ function loadApiKeys() {
   document.getElementById('whisper-url').value = wu;
   document.getElementById('deepseek-key').value = dk;
   document.getElementById('deepseek-url').value = du;
+  document.getElementById('cors-proxy-url').value = localStorage.getItem('shadow_cors_proxy_url') || '';
 }
 function saveApiKeys() {
   localStorage.setItem('shadow_whisper_key', document.getElementById('whisper-key').value.trim());
   localStorage.setItem('shadow_whisper_url', document.getElementById('whisper-url').value.trim());
   localStorage.setItem('shadow_deepseek_key', document.getElementById('deepseek-key').value.trim());
   localStorage.setItem('shadow_deepseek_url', document.getElementById('deepseek-url').value.trim());
+  localStorage.setItem('shadow_cors_proxy_url', document.getElementById('cors-proxy-url').value.trim().replace(/\/$/, ''));
   document.getElementById('api-save-tip').textContent = '✓ 已保存';
   setTimeout(() => document.getElementById('api-save-tip').textContent = '', 2000);
 }
@@ -1211,6 +1217,7 @@ function getDeepSeekKey() {
   return localStorage.getItem('shadow_deepseek_key') || localStorage.getItem('deepseek_api_key') || '';
 }
 function getDeepSeekUrl() { return (localStorage.getItem('shadow_deepseek_url') || 'https://api.deepseek.com/v1').replace(/\/$/, ''); }
+function getCorsProxyUrl() { return localStorage.getItem('shadow_cors_proxy_url') || ''; }
 
 function toggleApiPanel() {
   const p = document.getElementById('api-panel');
@@ -3707,13 +3714,31 @@ function jsonp(url) {
   });
 }
 
-// 把远程 URL 拉成本地 File 对象喂给现有的 loadFile()，全功能复用（波形/转写都能用）
-async function fetchUrlIntoFile(url, suggestedName, statusPrefix) {
+async function fetchWithTimeout(url, ms) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 120000);
-  const res = await fetch(url, { signal: ctrl.signal });
-  clearTimeout(timer);
-  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 把远程 URL 拉成本地 File 对象喂给现有的 loadFile()，全功能复用（波形/转写都能用）
+// 直接抓取被 CORS 拦下时，如果配置了 CORS 代理 Worker，自动改走代理重试
+// （手机端没法跑本地下载服务，这是手机上唯一能绕开 CORS 的办法）
+async function fetchUrlIntoFile(url, suggestedName, statusPrefix) {
+  let res;
+  try {
+    res = await fetchWithTimeout(url, 120000);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+  } catch (directErr) {
+    const proxy = getCorsProxyUrl();
+    if (!proxy) throw directErr;
+    setUrlStatus('🎵 直接获取受限，改走 CORS 代理重试…');
+    res = await fetchWithTimeout(proxy + '?url=' + encodeURIComponent(url), 120000);
+    if (!res.ok) throw new Error('代理请求也失败：HTTP ' + res.status);
+  }
   const blob = await res.blob();
   if (blob.size < 10000) throw new Error('返回内容过小，可能不是媒体文件');
   let name = suggestedName || url.split('/').pop().split('?')[0] || 'remote-media';
@@ -3775,7 +3800,10 @@ async function loadFromApplePodcasts(url) {
         _remoteUrl: ep.episodeUrl,
       });
       safePlay();
-      setUrlStatus('✅ 开始播放（该托管方不允许网页读取音频字节，无法本地转写/看真实波形，播放/跳转/跟读功能均可正常使用）');
+      const proxyHint = getCorsProxyUrl()
+        ? '（CORS 代理也未能获取，托管方可能连代理都拒绝了）'
+        : '（可在「⚙ API 设置」配置 CORS 代理 Worker 后解决，见 cors-proxy-worker.js）';
+      setUrlStatus(`✅ 开始播放（该托管方不允许网页读取音频字节，无法本地转写/看真实波形${proxyHint}，播放/跳转/跟读功能均可正常使用）`);
     }
     if (ep.description) {
       setTranscribeStatus('节目简介：' + ep.description.slice(0, 200) + (ep.description.length > 200 ? '…' : ''));
