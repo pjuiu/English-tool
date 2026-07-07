@@ -645,7 +645,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707j</span>
+    <span>Shadow Reading Lab · v20260707k</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -1011,10 +1011,13 @@ function lastIdxWithStartLE(t) {
   }
   return ans;
 }
-/* 严格包含：t 必须落在该句 [start,end] 内，否则返回 -1（用于高亮/卡拉OK，句间空白不高亮任何句） */
+/* t 落在该句 [start, end+宽容值] 内才算命中，否则返回 -1（句间真正的长间隙仍然不显示任何句）。
+   宽容值是给 Whisper 时间戳的天然误差留的缓冲——自动语音识别的句子边界经常比实际说话
+   提前 0.3~1 秒结束，不加宽容度会出现"人还在说话但字幕先没了"的空白感 */
+const SUB_END_GRACE = 0.8;
 function findSubIdxAt(t) {
   const ans = lastIdxWithStartLE(t);
-  return (ans >= 0 && t <= subtitles[ans].end) ? ans : -1;
+  return (ans >= 0 && t <= subtitles[ans].end + SUB_END_GRACE) ? ans : -1;
 }
 let activeRowEl = null;   // 当前高亮行（避免每次全列表遍历）
 
