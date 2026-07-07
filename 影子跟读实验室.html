@@ -574,6 +574,18 @@
     padding: 10px 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     box-shadow: 0 8px 32px rgba(0,0,0,.18); z-index: 9998; font-size: 13px; max-width: 92vw;
   }
+  /* 手机自动播放被拦截时的大按钮：不会自动消失，必须手动点掉，避免被当成"卡住了"直接无视 */
+  #play-unlock-btn {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: var(--accent); color: #fff; border: none; border-radius: 999px;
+    padding: 18px 32px; font-size: 17px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 10px 40px rgba(0,0,0,.3); z-index: 9999;
+    animation: playUnlockPulse 1.4s ease-in-out infinite;
+  }
+  @keyframes playUnlockPulse {
+    0%, 100% { box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+    50% { box-shadow: 0 10px 40px rgba(0,0,0,.3), 0 0 0 10px rgba(138,158,138,.25); }
+  }
 
   /* ── Recording ── */
   #record-panel {
@@ -645,7 +657,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707n</span>
+    <span>Shadow Reading Lab · v20260707o</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -1589,12 +1601,26 @@ function safePlay() {
   const p = ws.play();
   if (p && typeof p.catch === 'function') {
     p.catch(() => {
-      if (!playBlockedWarned) {
-        playBlockedWarned = true;
-        showToast('⚠️ 浏览器拦截了自动播放，请手动点一下「▶ 播放」解锁后再试', 5000);
-      }
+      // 手机上（尤其 iOS）自动播放几乎必被拦截：链接加载这类流程是异步的，
+      // 真正调用 play() 时已经不算"直接响应用户点击"了，会被浏览器判定为非用户发起的播放。
+      // 之前只弹一条会自动消失的 toast，很容易被当成"卡住了"直接忽略掉——
+      // 改成一个不会消失、必须手动点掉的大按钮，点了就播放，肉眼不可能错过
+      showPlayUnlockButton();
     });
   }
+}
+
+function showPlayUnlockButton() {
+  let btn = document.getElementById('play-unlock-btn');
+  if (btn) return;   // 已经显示了，不重复弹
+  btn = document.createElement('button');
+  btn.id = 'play-unlock-btn';
+  btn.innerHTML = '▶ 点击开始播放';
+  btn.onclick = () => {
+    btn.remove();
+    safePlay();
+  };
+  document.body.appendChild(btn);
 }
 
 /* 绝对时间跳转：直接操作媒体元素，不依赖波形解码——
