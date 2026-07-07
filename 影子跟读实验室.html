@@ -645,7 +645,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707l</span>
+    <span>Shadow Reading Lab · v20260707m</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -1150,7 +1150,10 @@ async function waveformFallback(force) {
   }
 }
 
-function fileKey() { return currentFileName + '_' + (currentFile ? currentFile.size : ''); }
+// 链接加载的内容优先用"来源链接"当身份标识，不用"文件名+字节数"——
+// 很多播客托管商每次请求会动态插入不同广告，同一集的下载字节数会变，
+// 用文件大小当 key 会导致"同一个链接重新打开"匹配不到之前存的字幕/片段，看起来像被覆盖了
+function fileKey() { return (currentFile && currentFile._sourceKey) || (currentFileName + '_' + (currentFile ? currentFile.size : '')); }
 
 // ═══════════════════════════════════════════════════════
 //  INDEXEDDB (录音持久化)
@@ -2801,7 +2804,7 @@ function deleteSegment(i) {
 // ═══════════════════════════════════════════════════════
 //  SUBTITLE PERSISTENCE (转写/翻译结果自动保存)
 // ═══════════════════════════════════════════════════════
-function subsKey() { return 'shadow_subs_' + currentFileName + '_' + (currentFile ? currentFile.size : ''); }
+function subsKey() { return 'shadow_subs_' + fileKey(); }
 
 /* 字幕存 IndexedDB（容量大、不会静默丢）；保存失败会明确提示 */
 async function idbPutSubs(fk, subs) {
@@ -3811,7 +3814,9 @@ async function fetchBlobWithTimeout(url, ms) {
 // 把远程 URL 拉成本地 File 对象喂给现有的 loadFile()，全功能复用（波形/转写都能用）
 // 直接抓取被 CORS 拦下时，如果配置了 CORS 代理 Worker，自动改走代理重试
 // （手机端没法跑本地下载服务，这是手机上唯一能绕开 CORS 的办法）
-async function fetchUrlIntoFile(url, suggestedName, statusPrefix) {
+// sourceKey：字幕/片段持久化用的稳定身份标识（通常是用户粘贴的原始链接），
+// 不传就退化用 url 本身——注意 url 参数可能是重定向/带签名的实际媒体地址，不一定稳定
+async function fetchUrlIntoFile(url, suggestedName, sourceKey) {
   let blob;
   try {
     blob = await fetchBlobWithTimeout(url, 180000);
@@ -3824,7 +3829,9 @@ async function fetchUrlIntoFile(url, suggestedName, statusPrefix) {
   if (blob.size < 10000) throw new Error('返回内容过小，可能不是媒体文件');
   let name = suggestedName || url.split('/').pop().split('?')[0] || 'remote-media';
   if (!/\.\w{2,4}$/.test(name)) name += blob.type.includes('video') ? '.mp4' : '.mp3';
-  loadFile(new File([blob], name, { type: blob.type || 'audio/mpeg' }));
+  const file = new File([blob], name, { type: blob.type || 'audio/mpeg' });
+  file._sourceKey = 'url:' + (sourceKey || url);
+  loadFile(file);
   safePlay();   // 拿到音频立即播放，不用再手动点一次；被浏览器自动播放策略拦截时 safePlay 会给出提示
 }
 
@@ -3868,7 +3875,10 @@ async function loadFromApplePodcasts(url) {
 
     setUrlStatus('🎵 获取音频中…');
     try {
-      await fetchUrlIntoFile(ep.episodeUrl, (ep.trackName || 'episode') + '.mp3');
+      // 用 iTunes 的 trackId 当稳定身份标识，不用 episodeUrl 本身——
+      // 同一集播客经常被托管方动态插入不同广告，重新下载时字节数会变，
+      // trackId 是数据库固定 ID，不受这个影响
+      await fetchUrlIntoFile(ep.episodeUrl, (ep.trackName || 'episode') + '.mp3', 'apple:' + ep.trackId);
       setUrlStatus('✅ 开始播放');
     } catch (fetchErr) {
       // 该播客托管方不允许网页读取音频字节（CORS）——退化为"远程 URL 源"：
@@ -3879,6 +3889,7 @@ async function loadFromApplePodcasts(url) {
         size: 0,
         type: 'audio/mpeg',
         _remoteUrl: ep.episodeUrl,
+        _sourceKey: 'apple:' + ep.trackId,
       });
       safePlay();
       const proxyHint = getCorsProxyUrl()
@@ -3940,7 +3951,8 @@ async function loadViaLocalBackend(url, platform) {
       es.onerror = () => { es.close(); reject(new Error('与本地服务的连接中断')); };
     }).then(async (result) => {
       setUrlStatus('🎵 载入文件中…');
-      await fetchUrlIntoFile(LOCAL_BACKEND + '/' + result.path, result.filename);
+      // 用用户粘贴的原始链接当稳定身份标识，不用本地服务临时生成的文件路径
+      await fetchUrlIntoFile(LOCAL_BACKEND + '/' + result.path, result.filename, 'link:' + url);
       if (result.has_subtitle) {
         setUrlStatus('📝 加载字幕中…');
         const srtStem = result.filename.replace(/\.[^.]+$/, '');
@@ -4056,7 +4068,7 @@ function deleteRecording(key) {
 // ═══════════════════════════════════════════════════════
 //  CUT SEGMENTS (选段剪切：自动等分 / 手动打点 / 循环)
 // ═══════════════════════════════════════════════════════
-function cutsKey() { return 'shadow_cuts_' + currentFileName + '_' + (currentFile ? currentFile.size : ''); }
+function cutsKey() { return 'shadow_cuts_' + fileKey(); }
 
 async function idbPutCuts(fk, cuts) {
   const db = await openIdb();
