@@ -555,6 +555,8 @@
   }
   #media-url:focus { border-color: var(--accent); }
   #url-note { margin: 6px 16px 0; font-size: 11.5px; color: var(--text-muted); }
+  #url-platform-badge { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  #url-status-line { margin: 6px 16px 0; font-size: 12.5px; color: var(--accent2); min-height: 16px; }
 
   /* ── Recording ── */
   #record-panel {
@@ -626,7 +628,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707b</span>
+    <span>Shadow Reading Lab · v20260707c</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -655,6 +657,17 @@
   </div>
 </div>
 
+<!-- 链接载入（顶部，粘贴 YouTube / Spotify / Apple Podcasts / 直链 均可） -->
+<div id="url-row">
+  <span id="url-platform-badge"></span>
+  <input type="text" id="media-url" placeholder="粘贴 YouTube / Spotify / Apple Podcasts / 音视频直链… 后回车"
+         oninput="updatePlatformBadge()" onkeydown="if(event.key==='Enter')loadFromUrl()" />
+  <button class="btn" id="url-load-btn" onclick="loadFromUrl()">▶ 开始</button>
+  <button class="btn" onclick="pickFileWithHandle()" title="通过系统选择器打开，浏览器会记住位置，下次一键重开">📂 打开并记住</button>
+</div>
+<div id="url-status-line"></div>
+<div id="url-note">Apple Podcasts 和普通直链可直接解析播放；YouTube / Spotify 等需要本机运行的下载服务（见下方指引）。</div>
+
 <!-- Upload Zone -->
 <div id="upload-zone" onclick="document.getElementById('file-input').click()"
      ondragover="onDragOver(event)" ondrop="onDrop(event)" ondragleave="onDragLeave(event)">
@@ -668,14 +681,6 @@
 <div id="recent-files" style="display:none;">
   <span style="font-size:12px;color:var(--text-muted);">最近：</span>
 </div>
-
-<!-- 直链载入 -->
-<div id="url-row">
-  <input type="text" id="media-url" placeholder="或粘贴音频/视频直链（.mp3 / .mp4 / .m4a…）后回车" onkeydown="if(event.key==='Enter')loadFromUrl()" />
-  <button class="btn" onclick="loadFromUrl()">🔗 载入链接</button>
-  <button class="btn" onclick="pickFileWithHandle()" title="通过系统选择器打开，浏览器会记住位置，下次一键重开">📂 打开并记住</button>
-</div>
-<div id="url-note">注：仅支持指向媒体文件本身的直链。YouTube / B站 / 播客节目页需先下载成文件（方法见下）。</div>
 
 <!-- YouTube/B站 链接分步指引（检测到平台链接时显示） -->
 <div id="yt-guide" style="display:none; margin:10px 16px 0; background:var(--surface); border:2px solid var(--accent2); border-radius:12px; padding:16px 18px;">
@@ -3644,35 +3649,191 @@ async function pickFileWithHandle() {
 }
 
 // ═══════════════════════════════════════════════════════
-//  LOAD FROM URL (媒体直链载入)
+//  LOAD FROM URL —— 纯前端，无需任何本地服务
+//  YouTube / Spotify（及其他需要 yt-dlp 的站点）走本机 shadow_reader 服务（未启动则给出指引）
+//  Apple Podcasts / 直链 完全纯前端解析，无需任何后端
 // ═══════════════════════════════════════════════════════
+const LOCAL_BACKEND = 'http://127.0.0.1:5000';
+
+function detectPlatform(url) {
+  const u = url.toLowerCase();
+  if (u.includes('youtube.com') || u.includes('youtu.be')) return 'youtube';
+  if (u.includes('open.spotify.com')) return 'spotify';
+  if (u.includes('podcasts.apple.com')) return 'apple_podcasts';
+  if (/\.(mp3|mp4|m4a|wav|ogg|webm|aac|flac)(\?.*)?$/i.test(u)) return 'direct';
+  if (/^https?:\/\//i.test(url)) return 'other';
+  return null;
+}
+
+const PLATFORM_ICON = { youtube: '🔴 YouTube', spotify: '🟢 Spotify', apple_podcasts: '🎧 Apple Podcasts', direct: '🔗 直链', other: '🌐' };
+
+function updatePlatformBadge() {
+  const url = document.getElementById('media-url').value.trim();
+  const p = detectPlatform(url);
+  document.getElementById('url-platform-badge').textContent = p ? PLATFORM_ICON[p] : '';
+}
+
+function setUrlStatus(text) { document.getElementById('url-status-line').textContent = text; }
+
+// JSONP：iTunes API 不发送 CORS 头，但支持 callback 参数，用 <script> 标签绕开 CORS 限制
+function jsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cbName = '_jsonp_cb_' + Math.random().toString(36).slice(2);
+    const timer = setTimeout(() => { cleanup(); reject(new Error('请求超时')); }, 15000);
+    function cleanup() {
+      clearTimeout(timer);
+      delete window[cbName];
+      script.remove();
+    }
+    window[cbName] = (data) => { cleanup(); resolve(data); };
+    const script = document.createElement('script');
+    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
+    script.onerror = () => { cleanup(); reject(new Error('网络请求失败')); };
+    document.body.appendChild(script);
+  });
+}
+
+// 把远程 URL 拉成本地 File 对象喂给现有的 loadFile()，全功能复用（波形/转写都能用）
+async function fetchUrlIntoFile(url, suggestedName, statusPrefix) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120000);
+  const res = await fetch(url, { signal: ctrl.signal });
+  clearTimeout(timer);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const blob = await res.blob();
+  if (blob.size < 10000) throw new Error('返回内容过小，可能不是媒体文件');
+  let name = suggestedName || url.split('/').pop().split('?')[0] || 'remote-media';
+  if (!/\.\w{2,4}$/.test(name)) name += blob.type.includes('video') ? '.mp4' : '.mp3';
+  loadFile(new File([blob], name, { type: blob.type || 'audio/mpeg' }));
+}
+
 async function loadFromUrl() {
   const url = document.getElementById('media-url').value.trim();
   if (!url) return;
-  if (!/^https?:\/\//i.test(url)) { showToast('请输入 http(s) 开头的直链'); return; }
-  if (/youtube\.com|youtu\.be|bilibili\.com|xiaoyuzhoufm|podcasts?\./i.test(url)) {
-    // 显示分步指引面板（比一闪而过的 toast 清楚得多）
+  if (!/^https?:\/\//i.test(url)) { showToast('请输入 http(s) 开头的链接'); return; }
+  const platform = detectPlatform(url);
+  document.getElementById('yt-guide').style.display = 'none';
+
+  if (platform === 'apple_podcasts') return loadFromApplePodcasts(url);
+  if (platform === 'youtube' || platform === 'spotify' || platform === 'other') return loadViaLocalBackend(url, platform);
+
+  // direct：直链媒体文件，直接 fetch，不需要任何后端
+  setUrlStatus('🎵 获取音频中…');
+  try {
+    await fetchUrlIntoFile(url);
+    setUrlStatus('✅ 开始播放');
+  } catch (e) {
+    setUrlStatus('');
+    showToast('链接载入失败：' + (e.name === 'AbortError' ? '超时' : e.message) +
+      '。该链接的服务器不允许网页直接抓取（CORS），请下载成文件后拖入。', 6000);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  Apple Podcasts —— 纯前端：iTunes API（JSONP）拿元数据 + 直链播放
+// ═══════════════════════════════════════════════════════
+async function loadFromApplePodcasts(url) {
+  const podcastId = (url.match(/\/id(\d+)/) || [])[1];
+  const episodeId = (url.match(/[?&]i=(\d+)/) || [])[1];
+  if (!podcastId) { showToast('无法从链接中识别 Apple Podcasts 的节目 ID'); return; }
+
+  setUrlStatus('📝 加载节目信息中…');
+  try {
+    const data = await jsonp(`https://itunes.apple.com/lookup?id=${podcastId}&entity=podcastEpisode&limit=50`);
+    const episodes = (data.results || []).filter(r => r.wrapperType === 'podcastEpisode');
+    if (!episodes.length) throw new Error('该节目没有可用的单集数据（可能是付费专享内容）');
+    const ep = episodeId ? (episodes.find(e => String(e.trackId) === episodeId) || episodes[0]) : episodes[0];
+    if (!ep.episodeUrl) throw new Error('这一集没有可播放的音频直链');
+
+    setUrlStatus('🎵 获取音频中…');
+    try {
+      await fetchUrlIntoFile(ep.episodeUrl, (ep.trackName || 'episode') + '.mp3');
+      setUrlStatus('✅ 开始播放');
+    } catch (fetchErr) {
+      // 该播客托管方可能不允许跨域读取字节（仍可直接播放，只是不能转写/拖入波形）
+      document.getElementById('main').classList.add('open');
+      document.getElementById('upload-zone').style.display = 'none';
+      const vid = document.getElementById('video-el');
+      vid.src = ep.episodeUrl;
+      vid.play().catch(() => {});
+      document.getElementById('file-name').textContent = ep.trackName || '播客单集';
+      currentFileName = ep.trackName || 'episode';
+      currentFile = null;
+      setUrlStatus('✅ 开始播放（该托管方不允许网页读取音频字节，无法本地转写/看波形，可直接听）');
+    }
+    if (ep.description) {
+      setTranscribeStatus('节目简介：' + ep.description.slice(0, 200) + (ep.description.length > 200 ? '…' : ''));
+    }
+  } catch (e) {
+    setUrlStatus('');
+    showToast('加载失败：' + e.message, 6000);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  YouTube / Spotify / 其他需要 yt-dlp 的站点 —— 走本机 shadow_reader 服务
+//  服务没启动时，退回到已有的手动指引面板（yt-guide）
+// ═══════════════════════════════════════════════════════
+async function loadViaLocalBackend(url, platform) {
+  setUrlStatus('🔍 检查本地下载服务…');
+  let alive = false;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 1500);
+    const r = await fetch(LOCAL_BACKEND + '/api/config', { signal: ctrl.signal });
+    clearTimeout(timer);
+    alive = r.ok;
+  } catch (e) { alive = false; }
+
+  if (!alive) {
+    setUrlStatus('');
     const g = document.getElementById('yt-guide');
     g.style.display = 'block';
     g.scrollIntoView({ block: 'center', behavior: 'smooth' });
     return;
   }
-  showToast('⏳ 正在下载媒体…');
+
+  setUrlStatus('🎵 获取音频中…');
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 120000);
-    const res = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(timer);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const blob = await res.blob();
-    if (blob.size < 10000) throw new Error('返回内容过小，可能不是媒体文件');
-    let name = url.split('/').pop().split('?')[0] || 'remote-media';
-    if (!/\.\w{2,4}$/.test(name)) name += blob.type.includes('video') ? '.mp4' : '.mp3';
-    loadFile(new File([blob], decodeURIComponent(name), { type: blob.type || 'audio/mpeg' }));
-    showToast('✓ 链接载入成功');
+    const startRes = await fetch(LOCAL_BACKEND + '/api/download/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, quality: 'audio' }),
+    }).then(r => r.json());
+    if (startRes.error) throw new Error(startRes.error);
+
+    await new Promise((resolve, reject) => {
+      const es = new EventSource(LOCAL_BACKEND + '/api/download/events/' + startRes.task_id);
+      es.onmessage = (ev) => {
+        const p = JSON.parse(ev.data);
+        if (p.percent) setUrlStatus(`🎵 获取音频中…${p.percent.toFixed(0)}%${p.speed ? ' · ' + p.speed : ''}`);
+        if (p.finished) {
+          es.close();
+          if (p.error && !p.result) reject(new Error(p.error));
+          else resolve(p.result);
+        }
+      };
+      es.onerror = () => { es.close(); reject(new Error('与本地服务的连接中断')); };
+    }).then(async (result) => {
+      setUrlStatus('🎵 载入文件中…');
+      await fetchUrlIntoFile(LOCAL_BACKEND + '/' + result.path, result.filename);
+      if (result.has_subtitle) {
+        setUrlStatus('📝 加载字幕中…');
+        const srtStem = result.filename.replace(/\.[^.]+$/, '');
+        const srtRes = await fetch(`${LOCAL_BACKEND}/api/srt/${encodeURIComponent(result.stem)}/${encodeURIComponent(srtStem)}/en`);
+        if (srtRes.ok) {
+          const text = await srtRes.text();
+          subtitles = cleanSubtitles(parseSRT(text));
+          saveSubtitles();
+          renderSubtitleList();
+          setUrlStatus('✅ 字幕已导入');
+          return;
+        }
+      }
+      setUrlStatus('✅ 开始播放');
+    });
   } catch (e) {
-    showToast('链接载入失败：' + (e.name === 'AbortError' ? '超时' : e.message) +
-      '。多数网站不允许网页直接抓取（CORS），请下载成文件后拖入。', 6000);
+    setUrlStatus('');
+    showToast('下载失败：' + e.message, 6000);
   }
 }
 
