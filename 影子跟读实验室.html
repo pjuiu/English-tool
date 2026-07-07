@@ -645,7 +645,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707g</span>
+    <span>Shadow Reading Lab · v20260707h</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -1993,6 +1993,35 @@ function showConfirmBar(message, yesText, noText) {
   });
 }
 
+// 按需解码一小段音频（ffmpeg 只把这一段抽成 16k 单声道 WAV，用完立即丢弃）—
+// 不再把整个文件解码进内存，这是手机端本地转写不再因内存不足被系统杀页面的关键
+async function ensureFFmpegInputReady() {
+  const ff = await ensureFFmpeg();
+  const ext = ((currentFileName || 'x.mp4').match(/\.[^.]+$/) || ['.mp4'])[0].toLowerCase();
+  if (ffWrittenKey !== fileKey()) {
+    setTranscribeStatus(`⏳ 载入文件到解码引擎（${formatSize(currentFile.size)}，首次需下载引擎约 31MB）…`);
+    await ff.writeFile('input' + ext, await FFmpegUtil.fetchFile(currentFile));
+    ffWrittenKey = fileKey();
+  }
+  return { ff, ext };
+}
+async function decodeAudioChunk16k(startSec, durSec) {
+  const { ff, ext } = await ensureFFmpegInputReady();
+  const outName = 'chunk_' + Date.now() + '.wav';
+  await ff.exec(['-ss', String(Math.max(0, startSec)), '-t', String(durSec), '-i', 'input' + ext,
+                 '-vn', '-ac', '1', '-ar', '16000', '-f', 'wav', outName]);
+  const data = await ff.readFile(outName);
+  try { await ff.deleteFile(outName); } catch (e) {}
+  const ab = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  const ctx = new AudioContext();
+  try {
+    const decoded = await ctx.decodeAudioData(ab);
+    return decoded.getChannelData(0);   // ffmpeg 已输出 16k 单声道，这里直接就是需要的采样率
+  } finally {
+    ctx.close();
+  }
+}
+
 async function doLocalTranscribe() {
   if (localTransRunning) {   // 再点一次 = 停止（保留已转写部分）
     localTransCancel = true;
@@ -2000,15 +2029,13 @@ async function doLocalTranscribe() {
     return;
   }
   if (!currentFile) return;
-  // 本地转写会把整段音频解码成未压缩 PCM 存进内存，手机浏览器内存预算小，
-  // 长音频（十几分钟以上）容易被系统直接杀掉页面（表现为"莫名其妙退回首页"）。
-  // 桌面浏览器内存充裕，不受此限制，只对手机提醒。
-  if (isMobileDevice() && duration > 900) {
-    const proceed = await showConfirmBar(
-      `当前音频约 ${Math.round(duration/60)} 分钟，本地转写需要把整段音频解码进内存，手机上可能因内存不足导致页面被系统重载（进度会丢失）。建议改用「▶ API 转写」，更稳。`,
-      '仍要尝试', '取消（改用 API 转写）'
-    );
-    if (!proceed) return;
+  if (currentFile._remoteUrl) {
+    showToast('这个来源没有本地字节可解码（托管方不允许网页读取），本地转写用不了，请用「▶ API 转写」', 5000);
+    return;
+  }
+  if (!duration || duration <= 0) {
+    showToast('还不知道音频总时长，请先等播放器加载完成（或点一下播放）再试', 4000);
+    return;
   }
   if (subtitles.length > 0) {
     const proceed = await showConfirmBar('已有字幕，本地转写会覆盖，继续？');
@@ -2028,19 +2055,19 @@ async function doLocalTranscribe() {
         setTranscribeStatus(`⏳ 下载模型 ${Math.round(p.progress || 0)}%…`);
       }
     });
-    setTranscribeStatus('⏳ 正在解码音频…');
-    const audio = await get16kAudio();
-    const SR = 16000;
-    const totalMin = Math.round(audio.length / SR / 60 * 10) / 10;
-    const PIECE = 115 * SR, OVER = 5 * SR, CUT = 2.5;   // 每段115s+5s重叠，重叠中线切词
-    const totalPieces = Math.max(1, Math.ceil(audio.length / PIECE));
+    const totalMin = Math.round(duration / 60 * 10) / 10;
+    const PIECE_SEC = 115, OVER_SEC = 5, CUT = 2.5;   // 每段115s+5s重叠，重叠中线切词
+    const totalPieces = Math.max(1, Math.ceil(duration / PIECE_SEC));
     const allWords = [];
     subtitles = [];
     for (let p = 0; p < totalPieces; p++) {
       if (localTransCancel) break;
-      const s0 = p * PIECE;
-      const seg = audio.subarray(s0, Math.min(audio.length, s0 + PIECE + OVER));
-      const off = s0 / SR;
+      const s0 = p * PIECE_SEC;
+      const segDur = Math.min(PIECE_SEC + OVER_SEC, duration - s0);
+      setTranscribeStatus(`⏳ 解码第 ${p+1}/${totalPieces} 段…`);
+      const seg = await decodeAudioChunk16k(s0, segDur);
+      if (localTransCancel) break;
+      const off = s0;
       let out;
       // Worker(proxy) 模式不支持词级时间戳：失败一次就记住，后续段直接用句级
       // （卡拉OK高亮会自动改用词长估算，观感几乎无差）
@@ -2055,7 +2082,7 @@ async function doLocalTranscribe() {
         out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
       }
       const lowCut = p === 0 ? -1 : CUT;
-      const highCut = (s0 + PIECE + OVER < audio.length) ? (PIECE / SR + CUT) : Infinity;
+      const highCut = (s0 + segDur < duration) ? (PIECE_SEC + CUT) : Infinity;
       for (const c of (out.chunks || [])) {
         if (!c.text || !c.text.trim()) continue;
         const st = (c.timestamp && c.timestamp[0] != null) ? c.timestamp[0] : 0;
@@ -2064,12 +2091,12 @@ async function doLocalTranscribe() {
         allWords.push({ text: c.text, timestamp: [st + off, en + off] });
       }
       // 每段完成立即更新字幕，可以边转边练
-      subtitles = wordsToSentences(allWords, (s0 + seg.length) / SR);
+      subtitles = wordsToSentences(allWords, Math.min(s0 + segDur, duration));
       // 句级模式下"词"其实是整句：删掉伪词级数据，让卡拉OK走词长估算
       if (!wordTsSupported) subtitles.forEach(s => { delete s.words; });
       saveSubtitles();
       renderSubtitleList();
-      const doneMin = Math.min(Math.round((s0 + PIECE) / SR / 60 * 10) / 10, totalMin);
+      const doneMin = Math.min(Math.round((s0 + PIECE_SEC) / 60 * 10) / 10, totalMin);
       // 用户按下停止后不再用逐段进度覆盖"正在停止"提示，避免看起来像没生效
       if (p < totalPieces - 1 && !localTransCancel) {
         setTranscribeStatus(`⏳ 已转写 ${doneMin}/${totalMin} 分钟（${subtitles.length} 句）——已出的字幕可以先点句练习，再点一次按钮可停止`);
@@ -3306,21 +3333,19 @@ async function doSegmentTranscribe(startSec, endSec, cutIdx) {
         setTranscribeStatus(`⏳ 下载模型 ${Math.round(p.progress || 0)}%…`);
       }
     });
-    const audio = await get16kAudio();
-    const SR = 16000;
-    const a = Math.max(0, Math.floor(startSec * SR));
-    const b = Math.min(audio.length, Math.ceil(endSec * SR));
+    // 只解码这个片段需要的一小段，不再解码整个文件（手机内存友好）
+    const seg = await decodeAudioChunk16k(startSec, endSec - startSec);
     setTranscribeStatus(`⏳ 片段转写中（${Math.round((endSec - startSec) / 60 * 10) / 10} 分钟音频）…`);
     let out;
     if (wordTsSupported) {
       try {
-        out = await asr(audio.subarray(a, b), { chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'word' });
+        out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'word' });
       } catch (e1) {
         wordTsSupported = false;
-        out = await asr(audio.subarray(a, b), { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+        out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
       }
     } else {
-      out = await asr(audio.subarray(a, b), { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+      out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
     }
     // 时间戳平移到全片绝对时间
     const chunks = (out.chunks || []).filter(c => c.text && c.text.trim()).map(c => ({
@@ -4419,16 +4444,14 @@ renderRecentFiles();
 ['sub-mode-wrap', 'transcribe-panel', 'cut-panel', 'record-panel', 'saved-wrap'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
-  el.classList.add('rp-collapsible');
+  el.classList.add('rp-collapsible', 'collapsed');   // 每次打开工具都强制折叠，不再依赖历史记忆
+  // 早期版本给部分面板存过"展开"记忆，留着的话会覆盖这里的强制折叠，直接清掉
+  localStorage.removeItem('shadow_fold_' + id);
   const h3 = el.querySelector('h3');
   if (!h3) return;
-  const saved = localStorage.getItem('shadow_fold_' + id);
-  // 打开工具默认全部折叠（用户明确要求），后续用户手动展开/折叠过的面板尊重记忆状态
-  if (saved === '1' || saved === null) el.classList.add('collapsed');
   h3.addEventListener('click', e => {
     if (e.target.tagName === 'BUTTON') return;
-    el.classList.toggle('collapsed');
-    localStorage.setItem('shadow_fold_' + id, el.classList.contains('collapsed') ? '1' : '0');
+    el.classList.toggle('collapsed');   // 只在当前会话内生效，刷新/重开后还是回到折叠
   });
 });
 </script>
