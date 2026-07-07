@@ -497,10 +497,21 @@
     padding: 5px 8px; font-size: 12px; color: var(--text); outline: none;
   }
 
-  /* ── 右栏面板可折叠 ── */
-  .rp-collapsible > h3 { cursor: pointer; user-select: none; }
-  .rp-collapsible > h3::before { content: '▾ '; color: var(--accent); font-size: 11px; }
-  .rp-collapsible.collapsed > h3::before { content: '▸ '; }
+  /* ── 右栏面板可折叠（箭头做大一点、加底色，让人一眼看出能点） ── */
+  .rp-collapsible > h3 {
+    cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 6px; margin: -4px -6px 8px; border-radius: 6px;
+    transition: background .15s;
+  }
+  .rp-collapsible > h3:hover { background: var(--surface2, rgba(0,0,0,.04)); }
+  .rp-collapsible > h3::before {
+    content: '▾'; color: #fff; background: var(--accent);
+    font-size: 12px; line-height: 1; width: 16px; height: 16px;
+    border-radius: 4px; display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .rp-collapsible.collapsed > h3::before { content: '▸'; }
   .rp-collapsible.collapsed > h3 { margin-bottom: 0; }
   .rp-collapsible.collapsed > *:not(h3) { display: none !important; }
   #waveform-wrap h3 { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; font-weight: 500; }
@@ -628,7 +639,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707c</span>
+    <span>Shadow Reading Lab · v20260707d</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -666,7 +677,7 @@
   <button class="btn" onclick="pickFileWithHandle()" title="通过系统选择器打开，浏览器会记住位置，下次一键重开">📂 打开并记住</button>
 </div>
 <div id="url-status-line"></div>
-<div id="url-note">Apple Podcasts 和普通直链可直接解析播放；YouTube / Spotify 等需要本机运行的下载服务（见下方指引）。</div>
+<div id="url-note">Apple Podcasts 和普通直链可直接解析播放；YouTube / Spotify 只需先双击 shadow_reader 里的「启动.bat」（留着后台跑，不用打开那个网页），再在这里粘贴链接即可自动下载导入——没启动的话会弹出图文指引。</div>
 
 <!-- Upload Zone -->
 <div id="upload-zone" onclick="document.getElementById('file-input').click()"
@@ -1226,7 +1237,7 @@ function loadFile(file) {
   currentFile = file;
   currentFileName = file.name;
   document.getElementById('file-name').textContent = file.name;
-  document.getElementById('file-meta').textContent = formatSize(file.size);
+  document.getElementById('file-meta').textContent = file._remoteUrl ? '🎧 在线播放（不支持本地转写）' : formatSize(file.size);
   document.getElementById('upload-zone').style.display = 'none';
   document.getElementById('main').classList.add('open');
   initWaveSurfer(file);
@@ -1342,15 +1353,18 @@ function initWaveSurfer(file, pre) {
     plugins: [wsRegions],
   };
   if (isVideo) opts.media = videoEl;
+  // 远程 URL 源（如托管方不允许网页读字节的播客直链）：没有本地字节可解码，
+  // 强制走占位波形+媒体元数据兜底这条路，播放/跳转/倍速等控件仍然全部通过 ws 生效
+  const remoteUrl = file._remoteUrl;
   // 大文件/视频：完全跳过解码，秒开即可播放/跳转；波形用占位图，可按需生成
-  const heavy = !pre && (isVideo || file.size > 25 * 1024 * 1024);
+  const heavy = !pre && (remoteUrl || isVideo || file.size > 25 * 1024 * 1024);
   if (pre) {
     // 备用路径：用预计算峰值渲染，完全绕开浏览器对原文件的解码
     opts.url = URL.createObjectURL(file);
     opts.peaks = [pre.peaks];
     opts.duration = pre.duration;
   } else if (heavy) {
-    opts.url = URL.createObjectURL(file);
+    opts.url = remoteUrl || URL.createObjectURL(file);
     opts.peaks = [PLACEHOLDER_PEAKS];
     opts.duration = 600;   // 占位；元数据到达后用真实时长瞬间重建
     opts.normalize = false;   // 占位纹理保持低矮，不放大成"满格波形"
@@ -1386,9 +1400,9 @@ function initWaveSurfer(file, pre) {
       }
     }
   }
-  // 占位波形时显示「生成真实波形」按钮
+  // 占位波形时显示「生成真实波形」按钮（远程 URL 源没有本地字节可提取，不显示这个按钮）
   document.getElementById('gen-wave-btn').style.display =
-    (heavy || (pre && pre.placeholder)) ? '' : 'none';
+    (!remoteUrl && (heavy || (pre && pre.placeholder))) ? '' : 'none';
 
   // 时长多路兜底：大文件/视频的波形解码可能极慢或失败，
   // 但媒体元数据几秒内就有时长——拿到任一来源即解锁进度条/剪切/跳转
@@ -3705,6 +3719,7 @@ async function fetchUrlIntoFile(url, suggestedName, statusPrefix) {
   let name = suggestedName || url.split('/').pop().split('?')[0] || 'remote-media';
   if (!/\.\w{2,4}$/.test(name)) name += blob.type.includes('video') ? '.mp4' : '.mp3';
   loadFile(new File([blob], name, { type: blob.type || 'audio/mpeg' }));
+  safePlay();   // 拿到音频立即播放，不用再手动点一次；被浏览器自动播放策略拦截时 safePlay 会给出提示
 }
 
 async function loadFromUrl() {
@@ -3750,16 +3765,17 @@ async function loadFromApplePodcasts(url) {
       await fetchUrlIntoFile(ep.episodeUrl, (ep.trackName || 'episode') + '.mp3');
       setUrlStatus('✅ 开始播放');
     } catch (fetchErr) {
-      // 该播客托管方可能不允许跨域读取字节（仍可直接播放，只是不能转写/拖入波形）
-      document.getElementById('main').classList.add('open');
-      document.getElementById('upload-zone').style.display = 'none';
-      const vid = document.getElementById('video-el');
-      vid.src = ep.episodeUrl;
-      vid.play().catch(() => {});
-      document.getElementById('file-name').textContent = ep.trackName || '播客单集';
-      currentFileName = ep.trackName || 'episode';
-      currentFile = null;
-      setUrlStatus('✅ 开始播放（该托管方不允许网页读取音频字节，无法本地转写/看波形，可直接听）');
+      // 该播客托管方不允许网页读取音频字节（CORS）——退化为"远程 URL 源"：
+      // 走 loadFile() 同一套流程（只是 initWaveSurfer 内部用占位波形 + 媒体元数据），
+      // 播放/跳转/倍速/逐句跟读等按钮因此仍然全部可用，只是没有真实波形、不能本地转写
+      loadFile({
+        name: (ep.trackName || 'episode') + '.mp3',
+        size: 0,
+        type: 'audio/mpeg',
+        _remoteUrl: ep.episodeUrl,
+      });
+      safePlay();
+      setUrlStatus('✅ 开始播放（该托管方不允许网页读取音频字节，无法本地转写/看真实波形，播放/跳转/跟读功能均可正常使用）');
     }
     if (ep.description) {
       setTranscribeStatus('节目简介：' + ep.description.slice(0, 200) + (ep.description.length > 200 ? '…' : ''));
@@ -4337,7 +4353,7 @@ renderRecentFiles();
   const h3 = el.querySelector('h3');
   if (!h3) return;
   const saved = localStorage.getItem('shadow_fold_' + id);
-  const defaultCollapsed = (id === 'waveform-wrap' || id === 'saved-wrap');
+  const defaultCollapsed = (id === 'waveform-wrap' || id === 'saved-wrap' || id === 'record-panel');
   if (saved === '1' || (saved === null && defaultCollapsed)) el.classList.add('collapsed');
   h3.addEventListener('click', e => {
     if (e.target.tagName === 'BUTTON') return;
