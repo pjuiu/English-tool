@@ -667,7 +667,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707u</span>
+    <span>Shadow Reading Lab · v20260707v</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -806,7 +806,7 @@
       <button class="btn" onclick="prevSentence()">⏮ 上一句</button>
       <button class="btn" onclick="replayCurrentSentence()">🔂 重播本句</button>
       <button class="btn" onclick="nextSentence()">⏭ 下一句</button>
-      <button class="btn" style="background:var(--accent);color:#fff;border-color:var(--accent);" onclick="enterPracticeHere()" title="进入逐句跟读练习（听→录→评分→下一句）">🎤 逐句跟读</button>
+      <button class="btn" onclick="enterPracticeHere()" title="进入逐句跟读练习（听→录→评分→下一句）">🎤 逐句跟读</button>
       <button class="btn" id="auto-shadow-btn" onclick="toggleAutoShadow()" title="全自动影子跟读：播一句→自动录你跟读→自动下一句，全程免手动">🤖 自动跟读</button>
       <span id="auto-status" style="font-size:12px;color:var(--text-muted);"></span>
     </div>
@@ -1011,6 +1011,22 @@ let autoRecorder = null, autoChunks = [];
 let recordings = [];         // {url, label, region, _key}
 let recKeySeq = 0;           // 每条录音的稳定标识，按钮绑定用它而非数组下标（下标会因删除而错位）
 let recAudio = new Audio();
+recAudio.addEventListener('error', () => {
+  const err = recAudio.error;
+  diagLog(`录音回放元素 error 事件: code=${err ? err.code : '?'} message=${err ? err.message : '未知'}`);
+});
+// 录音回放的 play() 之前没有任何错误处理——"对比"按钮的回放是延迟触发的
+// （先等原声播完，等到某个时间点才回调执行），这时候早就不是"用户刚点击"那一刻了，
+// 很容易被浏览器自动播放策略静默拦截，用户只会看到"什么反应都没有"
+function playRecAudio(context) {
+  const p = recAudio.play();
+  if (p && typeof p.catch === 'function') {
+    p.catch(err => {
+      diagLog(`录音回放 play() 被拒绝（${context}）: ${err && err.name} ${err && err.message}`);
+      showToast('录音播放被浏览器拦截了，请再点一次播放按钮', 4000);
+    });
+  }
+}
 let cutSegments = [];        // 选段剪切列表 [{start, end, label, text?, practiceCount?, lastPracticed?}]
 let cutMarkA = null;         // 手动打点：起点
 let cutMarkB = null;         // 手动打点：终点
@@ -1442,13 +1458,16 @@ function initWaveSurfer(file, pre) {
       return true;
     };
     if (m0) {
-      // 竞态修复：元数据可能在监听器挂上之前就绪 → 先查一次，再监听，再兜底轮询
+      // 竞态修复：元数据可能在监听器挂上之前就绪 → 先查一次，再监听，再兜底轮询。
+      // 之前只等 15 秒（30 次 × 500ms）——大文件（几十上百 MB）在较慢的设备/浏览器上
+      // 提取元数据可能明显更久，等太短会导致本地转写因为"不知道总时长"直接放弃，
+      // 用户完全看不出原因（状态栏文字甚至不会更新）。放宽到 90 秒。
       if (!rebuildWithRealDuration()) {
         m0.addEventListener('loadedmetadata', rebuildWithRealDuration, { once: true });
         let tries = 0;
         const timer = setInterval(() => {
           if (m0.duration === Infinity) fixInfiniteDuration(m0);   // 分片 MP4：先逼出真实时长
-          if (rebuildWithRealDuration() || ++tries > 30) clearInterval(timer);
+          if (rebuildWithRealDuration() || ++tries > 180) clearInterval(timer);
         }, 500);
       }
     }
@@ -2123,7 +2142,9 @@ async function doLocalTranscribe() {
     return;
   }
   if (!duration || duration <= 0) {
-    showToast('还不知道音频总时长，请先等播放器加载完成（或点一下播放）再试', 4000);
+    diagLog(`本地转写：duration 全局变量为 ${duration}，等待中止`);
+    setTranscribeStatus('⏳ 还不知道音频总时长，大文件提取元数据可能需要几十秒，请稍等一会儿再点一次「本地转写」');
+    showToast('还不知道音频总时长，请稍等再试', 4000);
     return;
   }
   if (subtitles.length > 0) {
@@ -3365,7 +3386,7 @@ function practicePlayMine() {
   stopAllPlayback();
   recAudio.src = practice.recUrl;
   recAudio.currentTime = 0;
-  recAudio.play();
+  playRecAudio('我的录音');
   markPlayingBtn(btn);
   setPracticeStatus('▶ 播放你的录音…');
 }
@@ -3376,7 +3397,7 @@ function practiceCompare() {
   if (btn.classList.contains('playing-now')) { stopAllPlayback(); setPracticeStatus('已停止'); return; }
   stopAllPlayback();
   setPracticeStatus('🔁 对比：先原声，后你的录音…');
-  abState = { end: practice.end, cb: () => { recAudio.src = practice.recUrl; recAudio.currentTime = 0; recAudio.play(); } };
+  abState = { end: practice.end, cb: () => { recAudio.src = practice.recUrl; recAudio.currentTime = 0; playRecAudio('对比-逐句'); } };
   seekSec(practice.start);
   safePlay();
   markPlayingBtn(btn);
@@ -4152,7 +4173,7 @@ function playRecording(key, e) {
   stopAllPlayback();
   recAudio.src = rec.url;
   recAudio.currentTime = 0;
-  recAudio.play();
+  playRecAudio('录音列表播放');
   markPlayingBtn(e ? e.target : null);
 }
 
@@ -4181,7 +4202,7 @@ function compareRecording(key, e) {
   stopAllPlayback();
   if (!reg || !ws || !duration) { playRecording(key, e); return; }
   showToast('对比播放：先原声，后你的录音');
-  abState = { end: reg.end, cb: () => { recAudio.src = rec.url; recAudio.currentTime = 0; recAudio.play(); } };
+  abState = { end: reg.end, cb: () => { recAudio.src = rec.url; recAudio.currentTime = 0; playRecAudio('对比-录音列表'); } };
   seekSec(reg.start);
   safePlay();
   markPlayingBtn(e ? e.target : null);
