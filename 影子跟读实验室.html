@@ -568,16 +568,6 @@
   #url-note { margin: 6px 16px 0; font-size: 11.5px; color: var(--text-muted); }
   #url-platform-badge { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
   #url-status-line { margin: 6px 16px 0; font-size: 12.5px; color: var(--accent2); min-height: 16px; }
-  #diag-panel { margin: 8px 16px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
-  #diag-head { padding: 6px 10px; font-size: 11.5px; color: var(--text-muted); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
-  #diag-toggle-ico { margin-left: auto; }
-  #diag-log {
-    margin: 0; padding: 8px 10px; font-size: 11px; line-height: 1.6; max-height: 220px; overflow-y: auto;
-    white-space: pre-wrap; word-break: break-all; background: #1e1c1a; color: #c8e0c8;
-    font-family: ui-monospace, Menlo, Consolas, monospace; display: none; border-top: 1px solid var(--border);
-  }
-  #diag-panel.open #diag-log { display: block; }
-  #diag-panel.open #diag-toggle-ico { transform: rotate(180deg); }
   #confirm-bar {
     position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
     background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
@@ -667,7 +657,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707w</span>
+    <span>Shadow Reading Lab · v20260707x</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -710,10 +700,6 @@
 </div>
 <div id="url-status-line"></div>
 <div id="url-note">Apple Podcasts 和普通直链可直接解析播放；YouTube / Spotify 只需先双击 shadow_reader 里的「启动.bat」（留着后台跑，不用打开那个网页），再在这里粘贴链接即可自动下载导入——没启动的话会弹出图文指引。</div>
-<div id="diag-panel">
-  <div id="diag-head" onclick="toggleDiagPanel()">🔧 诊断信息（遇到问题时把这里的内容发给我）<span id="diag-toggle-ico">▾</span></div>
-  <pre id="diag-log"></pre>
-</div>
 
 <!-- Upload Zone -->
 <div id="upload-zone" onclick="document.getElementById('file-input').click()"
@@ -4609,25 +4595,10 @@ function showToast(msg, duration = 2500) {
 
 // 诊断日志：把链接加载/播放全过程的关键时间点、状态码、播放器真实状态直接打在页面上，
 // 手机上不方便看开发者工具，遇到问题时把这个面板的内容整段发过来，不用再靠描述"卡住了"来猜
-const diagT0 = Date.now();
-function diagLog(msg) {
-  const el = document.getElementById('diag-log');
-  if (!el) return;
-  const t = ((Date.now() - diagT0) / 1000).toFixed(1);
-  el.textContent += `[+${t}s] ${msg}\n`;
-  el.scrollTop = el.scrollHeight;
-  document.getElementById('diag-panel').classList.add('open');   // 有新日志就自动展开，不用再手动点一次
-}
-function toggleDiagPanel() {
-  document.getElementById('diag-panel').classList.toggle('open');
-}
-function diagReportMediaState(label) {
-  const m = ws && ws.getMediaElement ? ws.getMediaElement() : null;
-  if (!m) { diagLog(`${label}: 没有媒体元素`); return; }
-  diagLog(`${label}: readyState=${m.readyState} networkState=${m.networkState} paused=${m.paused} `
-    + `currentTime=${m.currentTime.toFixed(2)} duration=${isFinite(m.duration)?m.duration.toFixed(2):m.duration} `
-    + `src=${(m.currentSrc||'').slice(0,60)} error=${m.error ? (m.error.code+':'+m.error.message) : '无'}`);
-}
+// 调试用的诊断面板已经排查完问题并移除；调用点留在原地不逐一清理，
+// 这两个函数就地退化成空操作，代价可忽略（几个字符串模板求值）
+function diagLog(msg) {}
+function diagReportMediaState(label) {}
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
