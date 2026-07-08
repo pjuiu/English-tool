@@ -657,7 +657,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707x</span>
+    <span>Shadow Reading Lab · v20260707y</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -3989,7 +3989,6 @@ async function loadFromUrl() {
 //  Apple Podcasts —— 纯前端：iTunes API（JSONP）拿元数据 + 直链播放
 // ═══════════════════════════════════════════════════════
 async function loadFromApplePodcasts(url) {
-  document.getElementById('diag-log').textContent = '';   // 每次新的加载清空旧日志，避免和上一次混在一起
   diagLog(`识别为 Apple Podcasts 链接: ${url}`);
   const podcastId = (url.match(/\/id(\d+)/) || [])[1];
   const episodeId = (url.match(/[?&]i=(\d+)/) || [])[1];
