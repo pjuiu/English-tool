@@ -667,7 +667,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707s</span>
+    <span>Shadow Reading Lab · v20260707t</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -1408,8 +1408,12 @@ function initWaveSurfer(file, pre) {
   // 大文件/视频：完全跳过解码，秒开即可播放/跳转；波形用占位图，可按需生成
   const heavy = !pre && (remoteUrl || isVideo || file.size > 25 * 1024 * 1024);
   if (pre) {
-    // 备用路径：用预计算峰值渲染，完全绕开浏览器对原文件的解码
-    opts.url = URL.createObjectURL(file);
+    // 备用路径：用预计算峰值渲染，完全绕开浏览器对原文件的解码。
+    // 关键 bug 修复：远程 URL 源（降级流式播放）的 file 是个假对象，没有真实字节，
+    // URL.createObjectURL() 只能处理真实 Blob/File，对假对象会直接抛异常——
+    // 而这个函数第一行已经把旧 ws destroy 置 null 了，异常一抛，新的 ws 永远创建不出来，
+    // 后续所有播放操作都会看到 ws 是 null（这就是"点击播放：ws 还没初始化"的真正原因）
+    opts.url = remoteUrl || URL.createObjectURL(file);
     opts.peaks = [pre.peaks];
     opts.duration = pre.duration;
   } else if (heavy) {
