@@ -667,7 +667,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707p</span>
+    <span>Shadow Reading Lab · v20260707q</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -862,7 +862,9 @@
         <option value="tv">影视剧/带背景音</option>
         <option value="clean">播客/干净人声</option>
       </select>
-      <input type="file" id="sub-file-input" accept=".srt,.vtt,.json" style="display:none" onchange="onSubFileLoad(event)" />
+      <!-- .srt/.vtt 不是苹果系统认识的标准文件类型，iOS 文件选择器光靠扩展名过滤经常把所有文件都标灰选不了；
+           补上对应 MIME 类型，且解析逻辑（onSubFileLoad）本来就是按文件名后缀自己判断的，不依赖这个属性，放宽没有风险 -->
+      <input type="file" id="sub-file-input" accept=".srt,.vtt,.json,text/plain,text/vtt,application/x-subrip,application/json" style="display:none" onchange="onSubFileLoad(event)" />
       <span id="transcribe-status"></span>
     </div>
   </div>
@@ -3898,11 +3900,10 @@ async function fetchUrlIntoFile(url, suggestedName, sourceKey) {
   file._sourceKey = 'url:' + (sourceKey || url);
   diagLog(`构造本地 File 成功：${name}，${(blob.size/1048576).toFixed(2)}MB，即将载入播放器`);
   loadFile(file);
+  // 手机上自动播放几乎必被拦截，尝试了也只是徒增一个"点击解锁"的弹出按钮打扰用户——
+  // 不主动播放，加载完就安静停着，用户想听时自己点常规的播放按钮（这本身就是真实用户手势，不会被拦）
   await new Promise(r => setTimeout(r, 300));
   diagReportMediaState('loadFile() 后');
-  safePlay();   // 拿到音频立即播放，不用再手动点一次；被浏览器自动播放策略拦截时 safePlay 会给出提示
-  await new Promise(r => setTimeout(r, 300));
-  diagReportMediaState('safePlay() 后');
 }
 
 async function loadFromUrl() {
@@ -3919,7 +3920,7 @@ async function loadFromUrl() {
   setUrlStatus('🎵 获取音频中…');
   try {
     await fetchUrlIntoFile(url);
-    setUrlStatus('✅ 开始播放');
+    setUrlStatus('✅ 加载完成，点击「▶ 播放」开始');
   } catch (e) {
     setUrlStatus('');
     showToast('链接载入失败：' + (e.name === 'AbortError' ? '超时' : e.message) +
@@ -3954,7 +3955,7 @@ async function loadFromApplePodcasts(url) {
       // 同一集播客经常被托管方动态插入不同广告，重新下载时字节数会变，
       // trackId 是数据库固定 ID，不受这个影响
       await fetchUrlIntoFile(ep.episodeUrl, (ep.trackName || 'episode') + '.mp3', 'apple:' + ep.trackId);
-      setUrlStatus('✅ 开始播放');
+      setUrlStatus('✅ 加载完成，点击「▶ 播放」开始');
     } catch (fetchErr) {
       diagLog(`直链获取彻底失败（含代理重试），退化为"仅播放不读字节"模式: ${fetchErr.message}`);
       // 该播客托管方不允许网页读取音频字节（CORS）——退化为"远程 URL 源"：
@@ -3969,13 +3970,10 @@ async function loadFromApplePodcasts(url) {
       });
       await new Promise(r => setTimeout(r, 300));
       diagReportMediaState('降级模式 loadFile() 后');
-      safePlay();
-      await new Promise(r => setTimeout(r, 500));
-      diagReportMediaState('降级模式 safePlay() 后');
       const proxyHint = getCorsProxyUrl()
         ? '（CORS 代理也未能获取，托管方可能连代理都拒绝了）'
         : '（可在「⚙ API 设置」配置 CORS 代理 Worker 后解决，见 cors-proxy-worker.js）';
-      setUrlStatus(`✅ 开始播放（该托管方不允许网页读取音频字节，无法本地转写/看真实波形${proxyHint}，播放/跳转/跟读功能均可正常使用）`);
+      setUrlStatus(`✅ 加载完成，点击「▶ 播放」开始（该托管方不允许网页读取音频字节，无法本地转写/看真实波形${proxyHint}）`);
     }
     if (ep.description) {
       setTranscribeStatus('节目简介：' + ep.description.slice(0, 200) + (ep.description.length > 200 ? '…' : ''));
@@ -4047,7 +4045,7 @@ async function loadViaLocalBackend(url, platform) {
           return;
         }
       }
-      setUrlStatus('✅ 开始播放');
+      setUrlStatus('✅ 加载完成，点击「▶ 播放」开始');
     });
   } catch (e) {
     setUrlStatus('');
