@@ -667,7 +667,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707t</span>
+    <span>Shadow Reading Lab · v20260707u</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -3915,18 +3915,21 @@ const STREAM_INSTEAD_OF_DOWNLOAD_THRESHOLD = 25 * 1024 * 1024;   // 超过这个
 
 async function fetchUrlIntoFile(url, suggestedName, sourceKey) {
   // 长播客常见几十上百 MB，等全部字节下载完才能开始听，等待时间很长且和手机网络波动强相关。
-  // 先用 HEAD 探一下大小，超过阈值就直接抛出特殊错误，让调用方走"边下边播"的流式模式，
-  // 不必等下载完——手机上大多数情况本来就是听已经转写好字幕的内容，不需要本地转写用到完整字节
-  try {
-    const headRes = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(8000) });
-    const len = parseInt(headRes.headers.get('Content-Length') || '0', 10);
-    diagLog(`HEAD 探测文件大小: ${len ? (len/1048576).toFixed(1)+'MB' : '未知（服务器未返回 Content-Length）'}`);
-    if (len > STREAM_INSTEAD_OF_DOWNLOAD_THRESHOLD) {
-      throw new Error('FILE_TOO_LARGE_PREFER_STREAMING');
+  // 但这个"大文件流式播放"策略是专门为手机的慢网络/小内存设计的妥协——代价是拿不到真实字节，
+  // 没法本地/API转写、看不到真实波形。桌面浏览器网络和内存都宽裕得多，没必要牺牲这些能力，
+  // 只在手机上启用这个策略，桌面端一律走完整下载
+  if (isMobileDevice()) {
+    try {
+      const headRes = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(8000) });
+      const len = parseInt(headRes.headers.get('Content-Length') || '0', 10);
+      diagLog(`HEAD 探测文件大小: ${len ? (len/1048576).toFixed(1)+'MB' : '未知（服务器未返回 Content-Length）'}`);
+      if (len > STREAM_INSTEAD_OF_DOWNLOAD_THRESHOLD) {
+        throw new Error('FILE_TOO_LARGE_PREFER_STREAMING');
+      }
+    } catch (headErr) {
+      if (headErr.message === 'FILE_TOO_LARGE_PREFER_STREAMING') throw headErr;
+      diagLog(`HEAD 探测失败（部分服务器不支持 HEAD），忽略，继续走完整下载: ${headErr.message}`);
     }
-  } catch (headErr) {
-    if (headErr.message === 'FILE_TOO_LARGE_PREFER_STREAMING') throw headErr;
-    diagLog(`HEAD 探测失败（部分服务器不支持 HEAD），忽略，继续走完整下载: ${headErr.message}`);
   }
   let blob;
   try {
