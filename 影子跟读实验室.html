@@ -667,7 +667,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707r</span>
+    <span>Shadow Reading Lab · v20260707s</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -862,9 +862,11 @@
         <option value="tv">影视剧/带背景音</option>
         <option value="clean">播客/干净人声</option>
       </select>
-      <!-- .srt/.vtt 不是苹果系统认识的标准文件类型，iOS 文件选择器光靠扩展名过滤经常把所有文件都标灰选不了；
-           补上对应 MIME 类型，且解析逻辑（onSubFileLoad）本来就是按文件名后缀自己判断的，不依赖这个属性，放宽没有风险 -->
-      <input type="file" id="sub-file-input" accept=".srt,.vtt,.json,text/plain,text/vtt,application/x-subrip,application/json" style="display:none" onchange="onSubFileLoad(event)" />
+      <!-- iOS Safari 的 accept 属性处理本来就不可靠（Apple 自己的 bug tracker 上挂了很多年没修），
+           混合多种类型时经常只认第一个、其余全部标灰选不了——之前加 MIME 类型试图修复反而可能让情况更糟。
+           业界标准解法：干脆不限制，所有文件都能选，解析逻辑（onSubFileLoad）本来就是按文件名后缀自己判断的，
+           选错文件也只是解析不出内容/提示格式错误，不会造成更坏的后果 -->
+      <input type="file" id="sub-file-input" style="display:none" onchange="onSubFileLoad(event)" />
       <span id="transcribe-status"></span>
     </div>
   </div>
@@ -1474,6 +1476,15 @@ function initWaveSurfer(file, pre) {
     mediaEl.addEventListener('durationchange', () => {
       if (isFinite(mediaEl.duration)) onDurationKnown(mediaEl.duration);
     });
+    // readyState 长期卡在 0（流式远程 URL 常见问题）往往是这几个事件在背后报错，
+    // 跟"点击播放"这个动作本身没关系——单独抓出来，不然只看点击那一刻的状态看不出真正原因
+    mediaEl.addEventListener('error', () => {
+      const err = mediaEl.error;
+      diagLog(`媒体元素 error 事件: code=${err ? err.code : '?'} message=${err ? err.message : '未知'}`);
+    });
+    mediaEl.addEventListener('stalled', () => diagLog('媒体元素 stalled 事件（网络请求已发出但长时间没有数据返回）'));
+    mediaEl.addEventListener('abort', () => diagLog('媒体元素 abort 事件（加载被中止）'));
+    mediaEl.addEventListener('canplay', () => diagLog('媒体元素 canplay 事件（已有足够数据可以开始播放）'));
   }
   if (pre) onDurationKnown(pre.duration);
   ws.on('error', () => { if (!decoded) waveformFallback(); });
@@ -1605,8 +1616,17 @@ function clearRegion() {
 //  PLAYBACK CONTROLS
 // ═══════════════════════════════════════════════════════
 function togglePlay() {
-  if (!ws) return;
-  ws.playPause();
+  if (!ws) { diagLog('点击播放：ws 还没初始化'); return; }
+  diagLog(`点击播放（点击前 isPlaying=${ws.isPlaying()}）`);
+  try {
+    const p = ws.playPause();
+    // wavesurfer v7 的 playPause() 内部走 play()，同样返回一个可能被拒绝的 Promise
+    if (p && typeof p.catch === 'function') {
+      p.catch(err => diagLog(`playPause() 的 Promise 被拒绝: ${err && err.name} ${err && err.message}`));
+    }
+  } catch (err) {
+    diagLog(`playPause() 同步抛出异常: ${err && err.name} ${err && err.message}`);
+  }
   setTimeout(() => diagReportMediaState('手动点击播放/暂停后'), 400);
 }
 
