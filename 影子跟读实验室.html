@@ -667,7 +667,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707q</span>
+    <span>Shadow Reading Lab · v20260707r</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -2683,23 +2683,28 @@ function selectSubtitle(i, e) {
 //  SUBTITLE IMPORT (SRT / JSON)
 // ═══════════════════════════════════════════════════════
 function loadSubtitleFile() {
+  diagLog(`点击"导入 SRT/VTT/JSON"，尝试打开文件选择器（accept="${document.getElementById('sub-file-input').accept}"）`);
   document.getElementById('sub-file-input').click();
 }
 function onSubFileLoad(e) {
   const f = e.target.files[0];
-  if (!f) return;
+  if (!f) { diagLog('文件选择器关闭，但没有选中任何文件（可能是取消了，或者系统没让选）'); return; }
+  diagLog(`选中文件: ${f.name}，${(f.size/1024).toFixed(1)}KB，type=${f.type || '未知'}`);
   const reader = new FileReader();
+  reader.onerror = () => diagLog(`读取文件失败: ${reader.error && reader.error.message}`);
   reader.onload = (ev) => {
     const text = ev.target.result;
+    diagLog(`文件读取成功，共 ${text.length} 字符，开始解析`);
     if (f.name.endsWith('.json')) {
       try {
         const data = JSON.parse(text);
         if (Array.isArray(data)) {
           subtitles = data.map(s => ({ start: +s.start, end: +s.end, text: s.text || '', zh: s.zh || '' }));
         }
-      } catch(err) { showToast('JSON 格式错误'); return; }
+      } catch(err) { diagLog(`JSON 解析失败: ${err.message}`); showToast('JSON 格式错误'); return; }
     } else {
       const rawParsed = parseSRT(text);   // 兼容 SRT 与 VTT
+      diagLog(`SRT/VTT 解析出 ${rawParsed.length} 条原始条目`);
       subtitles = cleanSubtitles(rawParsed);
       if (rawParsed.length - subtitles.length > 2) {
         showToast(`已自动清理滚动重复字幕：${rawParsed.length} 条 → ${subtitles.length} 句`);
@@ -3882,7 +3887,23 @@ async function fetchBlobWithTimeout(url, ms) {
 // （手机端没法跑本地下载服务，这是手机上唯一能绕开 CORS 的办法）
 // sourceKey：字幕/片段持久化用的稳定身份标识（通常是用户粘贴的原始链接），
 // 不传就退化用 url 本身——注意 url 参数可能是重定向/带签名的实际媒体地址，不一定稳定
+const STREAM_INSTEAD_OF_DOWNLOAD_THRESHOLD = 25 * 1024 * 1024;   // 超过这个大小直接流式播放，不等全部下载完
+
 async function fetchUrlIntoFile(url, suggestedName, sourceKey) {
+  // 长播客常见几十上百 MB，等全部字节下载完才能开始听，等待时间很长且和手机网络波动强相关。
+  // 先用 HEAD 探一下大小，超过阈值就直接抛出特殊错误，让调用方走"边下边播"的流式模式，
+  // 不必等下载完——手机上大多数情况本来就是听已经转写好字幕的内容，不需要本地转写用到完整字节
+  try {
+    const headRes = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(8000) });
+    const len = parseInt(headRes.headers.get('Content-Length') || '0', 10);
+    diagLog(`HEAD 探测文件大小: ${len ? (len/1048576).toFixed(1)+'MB' : '未知（服务器未返回 Content-Length）'}`);
+    if (len > STREAM_INSTEAD_OF_DOWNLOAD_THRESHOLD) {
+      throw new Error('FILE_TOO_LARGE_PREFER_STREAMING');
+    }
+  } catch (headErr) {
+    if (headErr.message === 'FILE_TOO_LARGE_PREFER_STREAMING') throw headErr;
+    diagLog(`HEAD 探测失败（部分服务器不支持 HEAD），忽略，继续走完整下载: ${headErr.message}`);
+  }
   let blob;
   try {
     blob = await fetchBlobWithTimeout(url, 180000);
@@ -3970,10 +3991,14 @@ async function loadFromApplePodcasts(url) {
       });
       await new Promise(r => setTimeout(r, 300));
       diagReportMediaState('降级模式 loadFile() 后');
-      const proxyHint = getCorsProxyUrl()
-        ? '（CORS 代理也未能获取，托管方可能连代理都拒绝了）'
-        : '（可在「⚙ API 设置」配置 CORS 代理 Worker 后解决，见 cors-proxy-worker.js）';
-      setUrlStatus(`✅ 加载完成，点击「▶ 播放」开始（该托管方不允许网页读取音频字节，无法本地转写/看真实波形${proxyHint}）`);
+      if (fetchErr.message === 'FILE_TOO_LARGE_PREFER_STREAMING') {
+        setUrlStatus('✅ 加载完成，点击「▶ 播放」开始（文件较大，边播边加载，不用等下载完；无法本地转写/看真实波形）');
+      } else {
+        const proxyHint = getCorsProxyUrl()
+          ? '（CORS 代理也未能获取，托管方可能连代理都拒绝了）'
+          : '（可在「⚙ API 设置」配置 CORS 代理 Worker 后解决，见 cors-proxy-worker.js）';
+        setUrlStatus(`✅ 加载完成，点击「▶ 播放」开始（该托管方不允许网页读取音频字节，无法本地转写/看真实波形${proxyHint}）`);
+      }
     }
     if (ep.description) {
       setTranscribeStatus('节目简介：' + ep.description.slice(0, 200) + (ep.description.length > 200 ? '…' : ''));
