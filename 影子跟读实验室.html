@@ -510,6 +510,15 @@
     padding: 0 20px;
     z-index: 6;
   }
+  /* 一句说完切到下一句时，旧的一句飞出、新的一句飞入，不是硬切换——
+     旧的临时脱离文档流（position:absolute），这样新的能立刻顶上原来的位置，不用等旧的先消失 */
+  @keyframes capSlideOut { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-12px); opacity: 0; } }
+  @keyframes capSlideIn { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  #video-caption .cap-anim-out {
+    position: absolute; left: 20px; right: 20px; bottom: 0;
+    animation: capSlideOut 0.28s ease forwards;
+  }
+  #video-caption .cap-anim-in { animation: capSlideIn 0.28s ease; }
   #video-caption .kw { pointer-events: auto; }   /* 单词本身可点击查义，与字幕列表行为一致 */
   #video-caption .cap-en {
     display: block;
@@ -753,7 +762,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260710i</span>
+    <span>Shadow Reading Lab · v20260710j</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -2585,10 +2594,31 @@ function updateCurrentSubtitle(t) {
       const wh = wordSpansHtml(seg.text);
       enEl.innerHTML = wh;
       zhEl.textContent = subMode === 'bilingual' ? (seg.zh || '') : '';
-      // 视频内嵌字幕（同样逐词）
+      // 视频内嵌字幕（同样逐词）——句子切换时旧的一句飞出、新的一句飞入，不再是硬切换
       const cap = document.getElementById('video-caption');
-      cap.innerHTML = `<span class="cap-en">${wh}</span>` +
-        (subMode === 'bilingual' && seg.zh ? `<div class="cap-zh"><span>${escHtml(seg.zh)}</span></div>` : '');
+      const oldCapEn = cap.querySelector('.cap-en');
+      const oldCapZh = cap.querySelector('.cap-zh');
+      const isFirstCap = !oldCapEn;
+      if (oldCapEn) {
+        oldCapEn.classList.remove('cap-en');
+        oldCapEn.classList.add('cap-anim-out');
+        setTimeout(() => oldCapEn.remove(), 300);
+      }
+      if (oldCapZh) {
+        oldCapZh.classList.remove('cap-zh');
+        oldCapZh.classList.add('cap-anim-out');
+        setTimeout(() => oldCapZh.remove(), 300);
+      }
+      const newCapEn = document.createElement('span');
+      newCapEn.className = 'cap-en' + (isFirstCap ? '' : ' cap-anim-in');
+      newCapEn.innerHTML = wh;
+      cap.appendChild(newCapEn);
+      if (subMode === 'bilingual' && seg.zh) {
+        const newCapZh = document.createElement('div');
+        newCapZh.className = 'cap-zh' + (isFirstCap ? '' : ' cap-anim-in');
+        newCapZh.innerHTML = `<span>${escHtml(seg.zh)}</span>`;
+        cap.appendChild(newCapZh);
+      }
       lastActiveSub = seg;
       kwPrevIdx = -1;
       // 局部行高亮：直接定位新旧两行，不再遍历整个列表。
@@ -2605,10 +2635,12 @@ function updateCurrentSubtitle(t) {
         // block:'nearest' 只在真正超出可视范围时才滚动，且只挪最小必要距离，更接近"跟着走"的感觉
         activeRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
-      // 缓存当前句的词元素（字幕栏 / 视频字幕 / 列表行×N），供卡拉OK逐帧点亮
+      // 缓存当前句的词元素（字幕栏 / 视频字幕 / 列表行×N），供卡拉OK逐帧点亮。
+      // 画面字幕这份要用 newCapEn（刚插入的新句）而不是 cap.querySelectorAll——
+      // 飞出动画播完之前，旧句子的 span 还短暂留在 cap 容器里，cap 整体查找会连旧的一起抓进来
       kwSets = [
         [...enEl.querySelectorAll('.kw')],
-        [...cap.querySelectorAll('.kw')],
+        [...newCapEn.querySelectorAll('.kw')],
         ...activeRows.map(r => [...r.querySelectorAll('.kw')]),
       ];
     }
@@ -5135,11 +5167,13 @@ document.addEventListener('keydown', (e) => {
   const tag = (e.target.tagName || '').toLowerCase();
   if (tag === 'input' || tag === 'textarea' || e.ctrlKey || e.metaKey || e.altKey) return;
   if (!ws) return;
-  // 点过任何按钮（播放按钮本身、字幕卡片上的收藏按钮……）之后，焦点会停留在那个 button 上。
-  // 这时候按空格键，浏览器会同时做两件事：① 把这次按键当成"激活当前聚焦的按钮"，触发它的 click
-  // ② keydown 事件正常冒泡到这里，走 case 'Space' 再调一次 togglePlay()——一次点击的效果被
-  // 这两次调用相互抵消，表现出来就是"按空格没反应"。按键处理前先把焦点移开，避免这种重复触发
-  if (e.code === 'Space' && tag === 'button') e.target.blur();
+  // 点过任何按钮（播放按钮本身、字幕卡片上的收藏按钮……）之后，焦点会停留在那个元素上。
+  // 这时候按空格键，浏览器会同时做两件事：① 把这次按键当成"激活当前聚焦的元素"（button 的
+  // click，或者原生 <video controls> 自己的播放/暂停切换）② keydown 事件正常冒泡到这里，
+  // 走 case 'Space' 再调一次 togglePlay()——一次操作的效果被这两次调用相互抵消，表现出来就是
+  // "按空格没反应"，或者"只能播放不能暂停"（原生 video 控件对暂停/播放的处理不完全对称）。
+  // 按键处理前先把焦点移开，避免这种重复触发
+  if (e.code === 'Space' && (tag === 'button' || tag === 'video')) e.target.blur();
   // 练习模式下快捷键全部围绕当前句
   if (practice) {
     switch (e.code) {
@@ -5161,6 +5195,12 @@ document.addEventListener('keydown', (e) => {
     case 'KeyN': nextSentence(); break;
     case 'KeyM': toggleRecord(); break;
   }
+});
+// 原生 <video controls> 元素自己会响应空格键切换播放/暂停（浏览器内置行为，不是这个页面的 JS 逻辑）——
+// 这跟上面全局快捷键的 togglePlay() 会同时触发、相互抵消，表现出来就是"播放正常，暂停没反应"这种
+// 不对称的失灵。直接在 video 元素自身拦截，不依赖事件冒泡时序，比只在 document 级别 preventDefault 更可靠
+document.getElementById('video-el').addEventListener('keydown', (e) => {
+  if (e.code === 'Space') e.preventDefault();
 });
 
 function applyZoom(v) {
