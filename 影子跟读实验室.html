@@ -797,7 +797,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260711d</span>
+    <span>Shadow Reading Lab · v20260711e</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -5229,37 +5229,54 @@ async function exportCutFile(i) {
       ? `⏳ 正在导出 ${c.label}（需要重新编码${subFilter ? '+烧录字幕' : ''}${maskOrig ? '+遮罩原字幕' : ''}，${Math.round((c.end - c.start) / 60)} 分钟片段约需 5–15 分钟，请耐心等）…`
       : `⏳ 正在导出 ${c.label}…`);
     const outName = 'clip' + ext;
-    let cmd;
-    if (vertical) {
-      // 小红书竖屏：1080×1920，视频居中上下黑边（重编码）
-      const vf = 'scale=1080:-2:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black'
-        + (burnChain ? ',' + burnChain : '');
-      cmd = ['-ss', String(c.start), '-to', String(c.end), '-i', inName,
-        '-vf', vf,
-        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
-        '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outName];
-    } else if (burnChain) {
-      cmd = ['-ss', String(c.start), '-to', String(c.end), '-i', inName,
-        '-vf', burnChain,
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
-        '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-avoid_negative_ts', 'make_zero', outName];
-    } else {
+    // seekMode='input'：-ss/-to 放在 -i 之前，直接跳到关键帧附近开始解码，快但对某些 AV1 源文件会失败——
+    // AV1 码流的 Sequence Header（解码器必需的初始化信息）经常只在文件真正开头出现一次，跳过去之后
+    // 解码器"半路接手"就会报 Missing Sequence Header 直接失败。seekMode='output' 把 -ss/-to 挪到 -i
+    // 之后，逼 ffmpeg 从文件真正开头开始解码（一定会经过 Sequence Header），到目标时间点才裁剪输出——
+    // 慢很多，但这是唯一可能救回这类文件的办法。只有需要重新编码（烧字幕/遮罩/竖屏）才用得到这个区分，
+    // 无损快剪走 -c copy 不需要解码，任何编码都不受影响，不需要重试
+    const buildCmd = (seekMode) => {
+      if (vertical) {
+        const vf = 'scale=1080:-2:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black'
+          + (burnChain ? ',' + burnChain : '');
+        const tail = ['-vf', vf, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+          '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', '-avoid_negative_ts', 'make_zero', outName];
+        return seekMode === 'output'
+          ? ['-i', inName, '-ss', String(c.start), '-to', String(c.end), ...tail]
+          : ['-ss', String(c.start), '-to', String(c.end), '-i', inName, ...tail];
+      } else if (burnChain) {
+        const tail = ['-vf', burnChain, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
+          '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-avoid_negative_ts', 'make_zero', outName];
+        return seekMode === 'output'
+          ? ['-i', inName, '-ss', String(c.start), '-to', String(c.end), ...tail]
+          : ['-ss', String(c.start), '-to', String(c.end), '-i', inName, ...tail];
+      }
       // -ss 放在 -i 之前做输入侧快速定位（无损、极快），但配合 -c copy 时容易产生负数时间戳，
       // 且视频/音频两条流各自对齐到的起点不一致——这就是导出的片段音画不同步的真正原因，
       // 在任何播放器打开都一样，不是某个播放器的兼容性问题。
       // -avoid_negative_ts make_zero 让 ffmpeg 把两条流的时间戳统一重新对齐到从 0 开始，消除这个偏差
-      cmd = ['-ss', String(c.start), '-to', String(c.end), '-i', inName, '-c', 'copy', '-avoid_negative_ts', 'make_zero', outName];
-    }
+      return ['-ss', String(c.start), '-to', String(c.end), '-i', inName, '-c', 'copy', '-avoid_negative_ts', 'make_zero', outName];
+    };
+    let cmd = buildCmd('input');
     diagLog(`ffmpeg 命令: ${cmd.join(' ')}`);
     await ff.exec(cmd);
-    const data = await ff.readFile(outName);
+    let data = await ff.readFile(outName);
     diagLog(`输出文件大小: ${data ? data.length : 0} 字节`);
     // ff.exec() 内部命令失败时不会抛异常，只会静默留下一个空文件——
     // 不检查的话会显示"导出成功"但实际下载的是 0 字节的坏文件，用户毫无察觉
+    if ((!data || data.length === 0) && needReencode && /av1|missing sequence header|not yet implemented/i.test(ffRecentLogs.join(' '))) {
+      diagLog('输出为空，疑似 AV1 输入侧快速定位跳过了 Sequence Header，改用输出侧定位重试一次（会明显更慢）…');
+      setCutStatus(`⏳ ${c.label} 换一种更慢但更稳的方式重试中，请再耐心等一会…`);
+      ffRecentLogs = [];
+      cmd = buildCmd('output');
+      diagLog(`ffmpeg 命令（重试）: ${cmd.join(' ')}`);
+      await ff.exec(cmd);
+      data = await ff.readFile(outName);
+      diagLog(`重试后输出文件大小: ${data ? data.length : 0} 字节`);
+    }
     if (!data || data.length === 0) {
       diagLog('输出为空，最近 ffmpeg 日志: ' + ffRecentLogs.slice(-10).join(' | '));
-      // AV1 编码的视频源，浏览器里跑的这个 ffmpeg 精简版解不了码（"Not yet implemented"），
-      // 只要涉及重新编码（烧字幕/遮罩/竖屏）就会失败；纯拷贝的无损快剪不用解码，不受影响。
+      // 两种定位方式都解不出来，才是真的没法解码（不是简单的 Sequence Header 定位问题）。
       // B 站等平台默认经常给 AV1 编码，这也是之前修复"只有声音没画面"时顺带改成优先要 H.264 编码的原因，
       // 但改动只对之后新下载的文件生效，这个视频文件本身很可能是那次修复前下载的旧文件
       const logsText = ffRecentLogs.join(' ');
