@@ -657,7 +657,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260707y</span>
+    <span>Shadow Reading Lab · v20260710a</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -3952,8 +3952,13 @@ async function fetchUrlIntoFile(url, suggestedName, sourceKey) {
   }
   if (blob.size < 10000) throw new Error('返回内容过小，可能不是媒体文件');
   let name = suggestedName || url.split('/').pop().split('?')[0] || 'remote-media';
-  if (!/\.\w{2,4}$/.test(name)) name += blob.type.includes('video') ? '.mp4' : '.mp3';
-  const file = new File([blob], name, { type: blob.type || 'audio/mpeg' });
+  // blob.type 常常是空的（服务器没返回 Content-Type，或经过 CORS 代理转发后丢失）——
+  // 之前空了就无条件当成音频处理，导致真正的视频链接被误判成音频：
+  // 画面区域被隐藏（isVideoFile 检测不到 video/ 前缀也检测不到视频扩展名），只留一个静音的音频轨道。
+  // 这里改成优先看链接本身的扩展名来判断视频/音频，服务器没给类型时也能猜对
+  const isVideoUrl = /\.(mp4|mov|mkv|webm|m4v|avi)(\?|$)/i.test(url) || (blob.type && blob.type.startsWith('video/'));
+  if (!/\.\w{2,4}$/.test(name)) name += isVideoUrl ? '.mp4' : '.mp3';
+  const file = new File([blob], name, { type: blob.type || (isVideoUrl ? 'video/mp4' : 'audio/mpeg') });
   file._sourceKey = 'url:' + (sourceKey || url);
   diagLog(`构造本地 File 成功：${name}，${(blob.size/1048576).toFixed(2)}MB，即将载入播放器`);
   loadFile(file);
@@ -4431,18 +4436,47 @@ async function exportCutFile(i) {
       ffWrittenKey = fileKey();
     }
     const vertical = document.getElementById('cut-vertical').checked && isVideoFile(currentFile);
-    setCutStatus(vertical
-      ? `⏳ 正在导出 ${c.label}（竖屏重编码，${Math.round((c.end - c.start) / 60)} 分钟片段约需 5–15 分钟，请耐心等）…`
+
+    // 把落在这个片段范围内的字幕烧录进画面——只对视频有意义（音频没有画面可烧）。
+    // 时间戳要相对这个片段的起点重新计算（导出的片段自己的时间轴从 0 开始，不是原片的时间轴）
+    let subFilter = '';
+    if (isVideoFile(currentFile) && subtitles.length > 0) {
+      const segSubs = subtitles.filter(s => s.end > c.start && s.start < c.end);
+      if (segSubs.length > 0) {
+        const srt = segSubs.map((s, idx) => {
+          const relStart = Math.max(0, s.start - c.start);
+          const relEnd = Math.max(relStart + 0.1, s.end - c.start);
+          return `${idx + 1}\n${secToSrtTime(relStart)} --> ${secToSrtTime(relEnd)}\n${s.text}\n`;
+        }).join('\n');
+        await ff.writeFile('burn.srt', srt);
+        subFilter = "subtitles=burn.srt:force_style='FontName=Arial,FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=1.5,MarginV=30'";
+      }
+    }
+    // 烧字幕必须重新编码（画面上的像素要改），没法再用无损快剪的 -c copy，导出会明显变慢
+    const needReencode = vertical || !!subFilter;
+    setCutStatus(needReencode
+      ? `⏳ 正在导出 ${c.label}（需要重新编码${subFilter ? '+烧录字幕' : ''}，${Math.round((c.end - c.start) / 60)} 分钟片段约需 5–15 分钟，请耐心等）…`
       : `⏳ 正在导出 ${c.label}…`);
     const outName = 'clip' + ext;
     if (vertical) {
       // 小红书竖屏：1080×1920，视频居中上下黑边（重编码）
+      const vf = 'scale=1080:-2:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black'
+        + (subFilter ? ',' + subFilter : '');
       await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName,
-        '-vf', 'scale=1080:-2:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black',
+        '-vf', vf,
         '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
         '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outName]);
+    } else if (subFilter) {
+      await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName,
+        '-vf', subFilter,
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
+        '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-avoid_negative_ts', 'make_zero', outName]);
     } else {
-      await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName, '-c', 'copy', outName]);
+      // -ss 放在 -i 之前做输入侧快速定位（无损、极快），但配合 -c copy 时容易产生负数时间戳，
+      // 且视频/音频两条流各自对齐到的起点不一致——这就是导出的片段音画不同步的真正原因，
+      // 在任何播放器打开都一样，不是某个播放器的兼容性问题。
+      // -avoid_negative_ts make_zero 让 ffmpeg 把两条流的时间戳统一重新对齐到从 0 开始，消除这个偏差
+      await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName, '-c', 'copy', '-avoid_negative_ts', 'make_zero', outName]);
     }
     const data = await ff.readFile(outName);
     const blob = new Blob([data.buffer], { type: currentFile.type || 'application/octet-stream' });
@@ -4452,7 +4486,10 @@ async function exportCutFile(i) {
     a.click();
     URL.revokeObjectURL(a.href);
     try { await ff.deleteFile(outName); } catch (e) {}
-    setCutStatus(`✓ 已导出 ${c.label}（无损快剪，起点对齐到最近关键帧）`);
+    try { if (subFilter) await ff.deleteFile('burn.srt'); } catch (e) {}
+    setCutStatus(needReencode
+      ? `✓ 已导出 ${c.label}${subFilter ? '（已烧录字幕）' : ''}`
+      : `✓ 已导出 ${c.label}（无损快剪，起点对齐到最近关键帧）`);
   } catch (e) {
     setCutStatus('');
     showToast('导出失败：' + e.message + '。可改用 shadow_reader 完整版导出。', 4500);
