@@ -778,7 +778,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260711b</span>
+    <span>Shadow Reading Lab · v20260711c</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -1357,6 +1357,7 @@ function updateCaptionKaraoke(t) {
   }
   capKwPrevIdx = idx;
 }
+let capTransitionSeq = 0;   // 旧句飞出、新句飞入错开时间用的世代号，见下面 updateCaptionUnit 的注释
 /* 画面字幕：判断当前时间落在哪个字幕单元（一句真话/一个小节），变了才滑入滑出切换；
    没变（同一单元内继续播放）就只是继续逐词高亮，画面字幕本身不动。
    独立于字幕栏/列表用的 segIdx，自己按时间直接查（findCapUnitIdx），
@@ -1366,6 +1367,7 @@ function updateCaptionUnit(t) {
   if (idx < 0) {
     if (lastCapGroupIdx !== -1) {
       lastCapGroupIdx = -1;
+      capTransitionSeq++;   // 让还没执行的"插入新句"延迟回调作废，避免它在清空之后又冒出来
       capWords = [];
       capKwSpans = [];
       capKwPrevIdx = -1;
@@ -1375,16 +1377,39 @@ function updateCaptionUnit(t) {
     return;
   }
   if (idx !== lastCapGroupIdx) {
+    lastCapGroupIdx = idx;
     const words = getCapUnits()[idx];
     capWords = words;
     const mergedText = words.map(w => w.w).join(' ');
     const sis = [...new Set(words.map(w => w.si))];
     const mergedZh = sis.map(si => subtitles[si].zh).filter(Boolean).join(' ');
+    lastCapText = mergedText;
     const wh = wordSpansHtml(mergedText);
     const cap = document.getElementById('video-caption');
     const oldCapEn = cap.querySelector('.cap-en');
     const oldCapZh = cap.querySelector('.cap-zh');
     const isFirstCap = !oldCapEn;
+    // 旧句飞出去、新句飞进来先后错开，而不是原来那样两句同时叠在同一块地方各自淡入淡出——
+    // 视觉上会有两行字幕短暂重合在一起，看着很乱。旧的先完全飞完（跟 CSS 里的 0.28s 动画时长对齐）
+    // 再插入新的；插入前先失效掉这段等待期间还没执行的旧插入回调（mySeq 世代号校验），
+    // 避免播放很快、句子很短的时候（比如接连几个很短的感叹句）多次切换互相打架
+    const mySeq = ++capTransitionSeq;
+    const insertNew = () => {
+      if (mySeq !== capTransitionSeq) return;
+      const newCapEn = document.createElement('span');
+      newCapEn.className = 'cap-en' + (isFirstCap ? '' : ' cap-anim-in');
+      newCapEn.innerHTML = wh;
+      cap.appendChild(newCapEn);
+      if (subMode === 'bilingual' && mergedZh) {
+        const newCapZh = document.createElement('div');
+        newCapZh.className = 'cap-zh' + (isFirstCap ? '' : ' cap-anim-in');
+        newCapZh.innerHTML = `<span>${escHtml(mergedZh)}</span>`;
+        cap.appendChild(newCapZh);
+      }
+      capKwSpans = [...newCapEn.querySelectorAll('.kw')];
+      capKwPrevIdx = -1;
+      updateCaptionKaraoke(ws ? ws.getCurrentTime() : t);   // 立即按当前播放进度点亮该点亮的词，不然新句刚出现时会有一瞬空白再"追赶"
+    };
     if (oldCapEn) {
       oldCapEn.classList.remove('cap-en');
       oldCapEn.classList.add('cap-anim-out');
@@ -1395,20 +1420,9 @@ function updateCaptionUnit(t) {
       oldCapZh.classList.add('cap-anim-out');
       setTimeout(() => oldCapZh.remove(), 300);
     }
-    const newCapEn = document.createElement('span');
-    newCapEn.className = 'cap-en' + (isFirstCap ? '' : ' cap-anim-in');
-    newCapEn.innerHTML = wh;
-    cap.appendChild(newCapEn);
-    if (subMode === 'bilingual' && mergedZh) {
-      const newCapZh = document.createElement('div');
-      newCapZh.className = 'cap-zh' + (isFirstCap ? '' : ' cap-anim-in');
-      newCapZh.innerHTML = `<span>${escHtml(mergedZh)}</span>`;
-      cap.appendChild(newCapZh);
-    }
-    capKwSpans = [...newCapEn.querySelectorAll('.kw')];
+    capKwSpans = [];   // 旧句还在飞出、新句还没插入这段空窗期，不驱动任何逐词高亮
     capKwPrevIdx = -1;
-    lastCapGroupIdx = idx;
-    lastCapText = mergedText;
+    if (isFirstCap) insertNew(); else setTimeout(insertNew, 280);
   }
   updateCaptionKaraoke(t);
 }
