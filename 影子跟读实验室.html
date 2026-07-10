@@ -321,6 +321,15 @@
   body.simple-mode.has-file #url-note { display: none !important; }
   /* 播放控制区里跟标签页功能重复、或者手机上用不到的按钮（重播本句/逐句跟读入口/自动跟读/快捷键提示） */
   body.simple-mode .sv-hide { display: none !important; }
+  /* 画面固定在顶部，只有下面的字幕/词卡/听写内容滚动——之前画面会跟着字幕列表一起被划走，
+     体验上很别扭，参考图那种"画面固定+下面翻内容"才是预期效果 */
+  body.simple-mode #video-wrap {
+    position: sticky; top: 0; z-index: 5; margin-bottom: 0;
+    border-radius: 0 0 10px 10px;
+  }
+  body.simple-mode #current-subtitle { display: none !important; }   /* 跟"字幕"标签页里高亮的当前句重复，简洁模式下没必要重复显示；JS 里有内联 style.display 会覆盖没加 !important 的规则 */
+  /* 手机屏幕高度有限，画面固定占用太多的话下面的字幕/词卡内容区就所剩无几了 */
+  body.simple-mode #video-el { max-height: 220px; }
   #sv-tabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--border); }
   .sv-tab {
     flex: 1; padding: 10px 4px; text-align: center; font-size: 14px; color: var(--text-muted);
@@ -334,10 +343,19 @@
     padding: 14px 16px; margin-bottom: 10px; display: block;
   }
   .sv-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-  .sv-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .sv-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
   .sv-card .sub-text { font-size: 16px; line-height: 1.6; }
   .sv-card .zh { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
   #main-left #sv-sub-tab { max-height: 62vh; }
+  .sv-word { font-size: 17px; font-weight: 700; }
+  .sv-ipa { color: var(--text-muted); font-size: 13px; }
+  .sv-def { font-size: 13px; line-height: 1.6; margin-top: 4px; }
+  .sv-dict-head { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+  .sv-dict-result { margin-top: 12px; }
+  .sv-dict-score { font-size: 20px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+  .sv-dict-marked { font-size: 16px; line-height: 1.8; }
+  .sv-dict-hit { color: var(--text); }
+  .sv-dict-miss { color: var(--danger, #c0392b); text-decoration: underline wavy; }
 
   /* ── Saved Segments ── */
   #saved-wrap {
@@ -700,7 +718,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260710e</span>
+    <span>Shadow Reading Lab · v20260710f</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -874,14 +892,17 @@
       <button class="sv-tab" data-tab="cards" onclick="switchSimpleTab('cards')">词卡</button>
       <button class="sv-tab" data-tab="dictation" onclick="switchSimpleTab('dictation')">听写</button>
     </div>
-    <div id="sv-sub-tab" class="sv-tab-content"><div id="sv-sub-list"></div></div>
+    <div id="sv-sub-tab" class="sv-tab-content">
+      <div style="text-align:right;margin-bottom:6px;">
+        <button class="btn" id="sv-fav-filter-btn" style="padding:3px 10px;font-size:12px;" onclick="toggleFavOnly()">⭐ 只看收藏</button>
+      </div>
+      <div id="sv-sub-list"></div>
+    </div>
     <div id="sv-practice-tab" class="sv-tab-content" style="display:none;"></div>
     <div id="sv-cards-tab" class="sv-tab-content" style="display:none;">
       <div class="sv-placeholder">🚧 词卡功能即将推出</div>
     </div>
-    <div id="sv-dictation-tab" class="sv-tab-content" style="display:none;">
-      <div class="sv-placeholder">🚧 听写功能即将推出</div>
-    </div>
+    <div id="sv-dictation-tab" class="sv-tab-content" style="display:none;"></div>
   </div>
 
   <!-- Subtitle List（主操作区：视频正下方，全宽） -->
@@ -2606,6 +2627,8 @@ function renderSubtitleList() {
   const ppanel = document.getElementById('practice-panel');
   if (ppanel && list.contains(ppanel)) document.getElementById('practice-home').appendChild(ppanel);
   activeRowEls = [];      // 行元素即将重建，旧引用作废
+  svCardsRendered = false;   // 字幕变了（新转写/导入），词卡也要跟着重新生成
+  svDictIdx = 0;   // 听写进度也重置到第一句
   lastActiveSub = null;    // 强制下一次 timeupdate 重新挂载高亮与卡拉OK
   if (subtitles.length === 0) {
     renderSvSubList();
@@ -2695,6 +2718,113 @@ function renderSvSubList() {
   });
 }
 
+/* ── 简洁模式：词卡（零 API 成本——单词表来自字幕文本本身，释义/音标来自已有的离线词典，
+     发音用浏览器自带的 speechSynthesis，全部是这个工具里本来就有的能力，只是重新组织成卡片） ── */
+const SV_STOPWORDS = new Set(('a,an,the,is,am,are,was,were,be,been,being,i,you,he,she,it,we,they,me,him,her,us,them,' +
+  'my,your,his,its,our,their,mine,yours,hers,ours,theirs,this,that,these,those,and,or,but,so,if,then,than,' +
+  'to,of,in,on,at,by,for,with,about,against,between,into,through,during,before,after,above,below,from,up,' +
+  'down,out,off,over,under,again,further,here,there,when,where,why,how,all,any,both,each,few,more,most,' +
+  'other,some,such,no,nor,not,only,own,same,too,very,can,will,just,don,should,now,do,does,did,doing,have,' +
+  'has,had,having,what,which,who,whom,as,because,while,got,get,gonna,wanna,yeah,okay,ok,oh,uh,um,hey,well,' +
+  'like,really,know,going,think,want,could,would,might,must,shall,let,lets').split(','));
+let svCardsRendered = false;
+function renderSvCardsTab() {
+  const list = document.getElementById('sv-cards-tab');
+  if (subtitles.length === 0) {
+    list.innerHTML = `<div class="sv-placeholder">还没有字幕，先转写或导入后再来抽生词卡</div>`;
+    return;
+  }
+  list.innerHTML = `<div class="sv-placeholder">📖 正在准备词卡…</div>`;
+  ensureShadowDicts().then(() => {
+    // 按首次出现顺序收集生词（去重、过滤虚词/太短的词），保留首次出现时的句子索引方便跳转回原句
+    const seen = new Map();
+    subtitles.forEach((s, idx) => {
+      (s.text || '').split(/[^A-Za-z']+/).forEach(raw => {
+        const w = raw.toLowerCase().replace(/^'+|'+$/g, '');
+        if (w.length < 3 || SV_STOPWORDS.has(w) || seen.has(w)) return;
+        seen.set(w, idx);
+      });
+    });
+    const words = [...seen.keys()];
+    if (words.length === 0) {
+      list.innerHTML = `<div class="sv-placeholder">这段内容里没有抽出符合条件的生词</div>`;
+      svCardsRendered = true;
+      return;
+    }
+    list.innerHTML = '';
+    words.forEach(w => {
+      const idx = seen.get(w);
+      const key = (window.WN_DICT && window.WN_DICT[w]) ? w : dpLemma(w);
+      const entry = key && window.WN_DICT ? window.WN_DICT[key] : null;
+      const ipa = window.IPA_DICT ? (window.IPA_DICT[key || w] || window.IPA_DICT[w] || '') : '';
+      const div = document.createElement('div');
+      div.className = 'sv-card sv-word-card';
+      div.innerHTML = `
+        <div class="sv-card-top">
+          <span class="sv-word">${escHtml(w)}</span>${ipa ? `<span class="sv-ipa">/${escHtml(ipa)}/</span>` : ''}
+          <button class="btn" style="padding:2px 8px;font-size:12px;margin-left:auto;" onclick="speakWord('${escHtml(w)}')">🔊</button>
+        </div>
+        ${entry ? entry.slice(0, 2).map(sense =>
+          `<div class="sv-def"><span class="dp-pos">${escHtml(sense[0])}</span> ${escHtml(sense[1])}</div>`).join('')
+          : `<div class="sv-def" style="color:var(--text-muted);">离线词典未收录</div>`}
+        <button class="btn" style="padding:3px 10px;font-size:12px;margin-top:8px;" onclick="switchSimpleTab('sub');playSentence(${idx})">↩ 跳到原句</button>
+      `;
+      list.appendChild(div);
+    });
+    svCardsRendered = true;
+  });
+}
+
+/* ── 简洁模式：听写（零 API 成本——播放一句、隐藏文字、用户凭听力打字，
+     跟原句用 normWords/alignWords 逐词对比打分，这套比对逻辑本来就是给跟读录音评分用的，
+     文字对文字直接复用，不用再接语音识别） ── */
+let svDictIdx = 0;
+function renderSvDictationTab() {
+  const box = document.getElementById('sv-dictation-tab');
+  if (subtitles.length === 0) {
+    box.innerHTML = `<div class="sv-placeholder">还没有字幕，先转写或导入后再来听写</div>`;
+    return;
+  }
+  if (svDictIdx >= subtitles.length) svDictIdx = 0;
+  const s = subtitles[svDictIdx];
+  box.innerHTML = `
+    <div class="sv-dict-head">第 ${svDictIdx + 1} / ${subtitles.length} 句</div>
+    <button class="btn active" style="width:100%;padding:12px;font-size:15px;" onclick="svDictPlay()">▶ 播放这句</button>
+    <textarea id="sv-dict-input" placeholder="凭听力打出这句话…" style="width:100%;min-height:70px;margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:15px;box-sizing:border-box;"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn" style="flex:1;" onclick="svDictCheck()">✓ 对比</button>
+      <button class="btn" style="flex:1;" onclick="svDictNext()">⏭ 下一句</button>
+    </div>
+    <div id="sv-dict-result"></div>
+  `;
+  svDictPlay();
+}
+function svDictPlay() {
+  const s = subtitles[svDictIdx];
+  if (!s || !ws) return;
+  seekSec(s.start);
+  abState = { end: s.end, cb: null };
+  safePlay();
+}
+function svDictCheck() {
+  const s = subtitles[svDictIdx];
+  const input = document.getElementById('sv-dict-input');
+  const refWords = normWords(s.text);
+  const hypWords = normWords(input.value);
+  const hit = alignWords(refWords, hypWords);
+  const score = refWords.length ? Math.round(hit.filter(Boolean).length / refWords.length * 100) : 0;
+  const marked = refWords.map((w, i) => `<span class="${hit[i] ? 'sv-dict-hit' : 'sv-dict-miss'}">${escHtml(w)}</span>`).join(' ');
+  document.getElementById('sv-dict-result').innerHTML = `
+    <div class="sv-dict-score">得分 ${score}%</div>
+    <div class="sv-dict-marked">${marked}</div>
+    ${s.zh ? `<div class="zh" style="margin-top:6px;">${escHtml(s.zh)}</div>` : ''}
+  `;
+}
+function svDictNext() {
+  svDictIdx++;
+  renderSvDictationTab();
+}
+
 function toggleSimpleMode() {
   const on = !document.body.classList.contains('simple-mode');
   document.body.classList.toggle('simple-mode', on);
@@ -2719,6 +2849,8 @@ function switchSimpleTab(tab) {
     if (!practice) enterPracticeHere();   // 第一次点进"跟读"标签页，还没有练习会话就直接开始
     else placePracticePanel();
   }
+  if (tab === 'cards' && !svCardsRendered) renderSvCardsTab();   // 词卡列表只需要生成一次，切标签页不用重算
+  if (tab === 'dictation') renderSvDictationTab();
 }
 
 /* ── 收藏句子 ── */
@@ -2764,6 +2896,8 @@ function toggleFavOnly() {
   favOnly = !favOnly;
   document.getElementById('fav-filter-btn').classList.toggle('active', favOnly);
   document.getElementById('fav-export-btn').style.display = favOnly ? '' : 'none';
+  const svBtn = document.getElementById('sv-fav-filter-btn');
+  if (svBtn) { svBtn.classList.toggle('active', favOnly); svBtn.textContent = favOnly ? '⭐ 显示全部' : '⭐ 只看收藏'; }
   renderSubtitleList();
 }
 function updateFavBtn() {
