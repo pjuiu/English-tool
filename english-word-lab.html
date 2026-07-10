@@ -281,6 +281,10 @@
     font-size:14px;line-height:1.7;display:none;
   }
   .review-answer.open{display:block;}
+  .spell-diff-row{font-size:16px;font-family:ui-monospace,Menlo,Consolas,monospace;margin-top:6px;text-align:left;letter-spacing:1px;}
+  .spell-diff-label{display:inline-block;min-width:66px;font-family:inherit;font-size:12px;color:#94a3b8;letter-spacing:normal;vertical-align:middle;}
+  .spell-diff-bad{background:#fee2e2;color:#dc2626;border-radius:3px;}
+  .spell-diff-missing{background:#fef3c7;color:#b45309;border-radius:3px;text-decoration:underline;}
   .spell-summary{text-align:left;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:14px;}
   .spell-summary-title{font-size:13px;color:#475569;margin-bottom:8px;}
   .spell-summary-list{display:flex;flex-wrap:wrap;gap:6px;}
@@ -408,7 +412,7 @@
 <body>
 
 <header>
-  <div class="logo">📘 English Word Lab <span style="font-size:11px;color:#94a3b8;font-weight:400;">v20260710a</span></div>
+  <div class="logo">📘 English Word Lab <span style="font-size:11px;color:#94a3b8;font-weight:400;">v20260710b</span></div>
   <div class="apikey">
     <button class="btn secondary" id="backupBtn" style="padding:5px 10px;font-size:12px;">💾 备份</button>
     <button class="btn secondary" id="restoreBtn" style="padding:5px 10px;font-size:12px;">📥 恢复</button>
@@ -2102,6 +2106,26 @@ let reviewIdx = 0;
 let reviewDone = 0;
 let spellSessionResults = [];   // 听写模式本轮的逐词对错记录 [{word, correct}]，完成后汇总展示
 
+// 拼写错误时，逐字符对比"用户输入"和"正确答案"——LCS 找出共同字符，没对上的分别标红（多打/打错）和标出（漏打）
+function spellCharDiff(userInput, correctWord){
+  const u = userInput.trim();
+  const ul = u.toLowerCase(), cl = correctWord.toLowerCase();
+  const n = ul.length, m = cl.length;
+  const dp = Array.from({length:n+1}, () => new Array(m+1).fill(0));
+  for(let i=1;i<=n;i++) for(let j=1;j<=m;j++)
+    dp[i][j] = ul[i-1]===cl[j-1] ? dp[i-1][j-1]+1 : Math.max(dp[i-1][j], dp[i][j-1]);
+  const hitU = new Array(n).fill(false), hitC = new Array(m).fill(false);
+  let i=n, j=m;
+  while(i>0 && j>0){
+    if(ul[i-1]===cl[j-1]){ hitU[i-1]=true; hitC[j-1]=true; i--; j--; }
+    else if(dp[i-1][j] >= dp[i][j-1]) i--;
+    else j--;
+  }
+  const userHtml = [...u].map((ch,idx) => hitU[idx] ? escapeHtml(ch) : `<span class="spell-diff-bad">${escapeHtml(ch)}</span>`).join('');
+  const correctHtml = [...correctWord].map((ch,idx) => hitC[idx] ? escapeHtml(ch) : `<span class="spell-diff-missing">${escapeHtml(ch)}</span>`).join('');
+  return { userHtml, correctHtml };
+}
+
 function dueCards(cards){
   const now = Date.now();
   return cards.filter(c => !c.srs || !c.srs.due || c.srs.due <= now);
@@ -2221,9 +2245,17 @@ function renderReview(){
       input.classList.add(wasCorrect ? 'correct' : 'wrong');
       input.disabled = true;
       $('#spellCheckRow').style.display = 'none';
-      $('#spellResult').innerHTML = wasCorrect
-        ? `<span class="ok">✓ 正确！</span> ${escapeHtml(c.word)} <span class="ipa" data-ipa="${escapeHtml(c.word)}"></span>`
-        : `<span class="no">✗ 正确答案：</span><b>${escapeHtml(c.word)}</b> <span class="ipa" data-ipa="${escapeHtml(c.word)}"></span>`;
+      if(wasCorrect){
+        $('#spellResult').innerHTML = `<span class="ok">✓ 正确！</span> ${escapeHtml(c.word)} <span class="ipa" data-ipa="${escapeHtml(c.word)}"></span>`;
+      } else {
+        // 只说"错了、正确答案是 xxx"不够——用户不知道自己具体哪个字母打错/打漏了，
+        // 逐字符对比标出来，一眼就能看出差在哪
+        const diff = spellCharDiff(input.value, c.word);
+        $('#spellResult').innerHTML = `
+          <div><span class="no">✗ 拼错了</span> <span class="ipa" data-ipa="${escapeHtml(c.word)}"></span></div>
+          <div class="spell-diff-row"><span class="spell-diff-label">你的输入</span>${diff.userHtml || '<i>(空)</i>'}</div>
+          <div class="spell-diff-row"><span class="spell-diff-label">正确答案</span>${diff.correctHtml}</div>`;
+      }
       attachAllIpa(area);
       $('#spellNextRow').style.display = 'flex';
       $('#spellNextBtn').focus();

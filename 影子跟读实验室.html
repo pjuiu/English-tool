@@ -497,7 +497,12 @@
   }
   #video-caption .kw { pointer-events: auto; }   /* 单词本身可点击查义，与字幕列表行为一致 */
   #video-caption .cap-en {
-    display: inline-block;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;   /* 长字幕不限行数换行的话，简洁模式下视频压得很矮（220px），字幕换行一多就把整个画面盖住了；
+                                最多显示2行，超出截断——完整文字本来就能在"字幕"标签页/下方大字幕区看到，画面内嵌这份只是辅助 */
+    overflow: hidden;
+    text-overflow: ellipsis;
     background: rgba(0,0,0,0.65);
     color: #fff;
     font-size: 17px;
@@ -510,7 +515,11 @@
     margin-top: 3px;
   }
   #video-caption .cap-zh span {
-    display: inline-block;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
     background: rgba(0,0,0,0.55);
     color: #e8e4de;
     font-size: 13px;
@@ -729,7 +738,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260710g</span>
+    <span>Shadow Reading Lab · v20260710h</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
