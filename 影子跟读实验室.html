@@ -330,6 +330,16 @@
   body.simple-mode #current-subtitle { display: none !important; }   /* 跟"字幕"标签页里高亮的当前句重复，简洁模式下没必要重复显示；JS 里有内联 style.display 会覆盖没加 !important 的规则 */
   /* 手机屏幕高度有限，画面固定占用太多的话下面的字幕/词卡内容区就所剩无几了 */
   body.simple-mode #video-el { max-height: 220px; }
+  /* 播放/上一句/下一句这排操作按钮挪到最下面——原来夹在"画面"和"字幕/词卡"标签页中间，
+     手指要来回跨过整个内容区才能点到，参考图里那类应用都是把操作条放在最底部。
+     用 flex order 视觉重排而不是挪动 DOM 位置，完整模式（没有 body.simple-mode 时）的布局完全不受影响 */
+  body.simple-mode #main-left { display: flex; flex-direction: column; }
+  body.simple-mode #video-wrap { order: 1; }
+  body.simple-mode #practice-home,
+  body.simple-mode #practice-panel,
+  body.simple-mode #current-subtitle { order: 2; }
+  body.simple-mode #simple-view { order: 3; }
+  body.simple-mode #controls { order: 4; margin-top: 8px; }
   #sv-tabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--border); }
   .sv-tab {
     flex: 1; padding: 10px 4px; text-align: center; font-size: 14px; color: var(--text-muted);
@@ -521,7 +531,11 @@
   #video-caption .cap-anim-in { animation: capSlideIn 0.28s ease; }
   #video-caption .kw { pointer-events: auto; }   /* 单词本身可点击查义，与字幕列表行为一致 */
   #video-caption .cap-en {
-    display: block;
+    display: inline-block;
+    max-width: 90%;   /* 之前是 display:block（撑满整个画面宽度），哪怕内容只有几个词，
+                         黑色背景条也横跨整个画面很不自然——改成 inline-block + max-width，
+                         配合父容器 #video-caption 的 text-align:center，让背景条跟着文字内容的实际长度走，
+                         内容短就是个小胶囊，内容长才顶到接近画面边缘 */
     max-height: 3.1em;   /* 固定 2 行高度——简洁模式下视频压得很矮（220px），字幕不限高的话换行一多会把整个画面盖住。
                             用固定高度 + overflow:hidden 而不是 -webkit-line-clamp，是因为 line-clamp 是从头静态裁切的，
                             长句子播到后半段时，正在读的那个词早被裁掉了，卡拉OK高亮跟播放进度对不上——
@@ -539,7 +553,9 @@
     margin-top: 3px;
   }
   #video-caption .cap-zh span {
-    display: -webkit-box;
+    display: -webkit-inline-box;   /* -webkit-inline-box 而不是 -webkit-box：既保留 line-clamp 的多行截断能力，
+                                       又跟 .cap-en 一样按内容宽度收缩，不再撑满整个画面 */
+    max-width: 90%;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 1;
     overflow: hidden;
@@ -762,7 +778,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260711a</span>
+    <span>Shadow Reading Lab · v20260711b</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -1170,16 +1186,16 @@ let favOnly = false;         // 只看收藏
 let kwSets = [];             // 当前句的词元素缓存 [subEnSpans, rowSpans]（字幕栏 + 列表行，按单条字幕驱动）
 let kwPrevIdx = -1;
 let karaokeRaf = null;
-// 画面内嵌字幕独立一套状态：按"句号/逗号等结尾"把连续字幕条目合成一个完整语义单元再切换，
-// 不跟字幕栏/列表那套按"单条字幕"驱动的逻辑共用，否则合并单元和单条字幕的词下标对不上
-let svCapGroups = null;       // [[segIdx,...], ...] 语义单元分组，按 subtitles 数组引用缓存
-let svCapGroupsSrc = null;
-let svCapGroupOfSeg = null;   // segIdx -> groupIdx
-let lastCapGroupIdx = -1;
-let capWords = [];            // 当前画面字幕语义单元的合并词时间轴（跨多条字幕拼接，绝对时间戳）
+// 画面内嵌字幕独立一套状态：不用原始 subtitles[] 的断句（Whisper 经常按停顿就切一刀，
+// 跟真正的句子/小节边界对不上），而是在词级时间轴上直接按标点+停顿重新切出"画面字幕单元"，
+// 不跟字幕栏/列表那套按"单条字幕"驱动的逻辑共用，否则单元和单条字幕的词下标对不上
+let svCapUnits = null;        // [[{w,s,e,si},...], ...] 画面字幕单元，按 subtitles 数组引用缓存
+let svCapUnitsSrc = null;
+let lastCapGroupIdx = -1;     // 当前画面字幕单元下标
+let capWords = [];            // 当前画面字幕单元的词时间轴（绝对时间戳）
 let capKwSpans = [];
 let capKwPrevIdx = -1;
-let lastCapText = '';         // 当前画面字幕显示的合并文本，点词查义时取这份而不是单条字幕的 text
+let lastCapText = '';         // 当前画面字幕显示的文本，点词查义时取这份而不是单条字幕的 text
 
 /* 二分查找"最后一个 start<=t 的句子下标"——subIndexAt/findSubIdxAt 共用的核心 */
 function lastIdxWithStartLE(t) {
@@ -1222,37 +1238,54 @@ function ensureWords(s) {
   return s.words;
 }
 
-/* 画面字幕的"语义单元"分组：把连续的字幕条目按结尾标点（句号/问号/感叹号/逗号/分号/冒号）
-   合并成一组，同一组内继续算"同一句话没说完"，只有跨组时画面字幕才滑入滑出切换。
-   Whisper 按停顿切出来的条目常常比一个完整句子/小节短，不这样合并的话画面字幕看起来
-   就是"一行一行"往上跳，而不是自然的"说完一句/一个小节才换" */
+/* 画面字幕单元：直接在词级时间轴上切，不依赖原始 subtitles[] 的断句。
+   Whisper 本地转写（wordsToSentences()）遇到 >0.8s 停顿就会强制切一条新字幕，跟真正的
+   句子/小节边界经常对不上——一句话被停顿切成两三条很常见，单条字幕独立触发切换动画时
+   看起来就是"一行一行"往上跳；而如果反过来把停顿切出来的条目再无脑合并回去，又会把
+   本来无关的两句话（比如感叹词后面停顿一下接了完全不相关的新句子）粘成一大段一起蹦出来。
+   真正准确的边界只能在词这一级同时看两件事：这个词是不是以句尾标点（句号/问号/感叹号/
+   逗号/分号/冒号，用户要求二者同等优先级）结尾，以及这个词跟下一个词之间是否有实际停顿——
+   两者任一命中就断开，断出来的每一段就是一句真话/一个小节，一次只显示一段 */
 const SV_CAP_BREAK_RE = /[.!?,;:][)\]"'"'』」]*$/;
-// 保险上限：万一转写没有标点（比如某些自动字幕/导入的 SRT 本来就不带标点），
-// 避免一个语义单元无限吞并下去变成一整段文字都挤在画面字幕里——按条数和总时长双重兜底，
-// 到了上限强制切一刀，退化成接近"按行"但比单条稍大块的效果，不会比原来的体验更差
-const SV_CAP_MAX_SEGS = 6;
-const SV_CAP_MAX_DUR = 12;
-function getCapGroups() {
-  if (svCapGroups && svCapGroupsSrc === subtitles) return svCapGroups;
-  const groups = [];
-  const ofSeg = [];
+const SV_CAP_PAUSE = 0.8;      // 词间停顿超过这个阈值，哪怕没有标点也当断点（跟 wordsToSentences 的断句阈值一致）
+const SV_CAP_MAX_WORDS = 24;   // 保险上限：万一转写完全没有标点，避免一个单元无限累积词数
+function getCapUnits() {
+  if (svCapUnits && svCapUnitsSrc === subtitles) return svCapUnits;
+  const units = [];
   let cur = [];
-  let curStart = 0;
-  subtitles.forEach((s, i) => {
-    if (cur.length === 0) curStart = s.start;
-    cur.push(i);
-    ofSeg[i] = groups.length;
-    const txt = (s.text || '').trim();
-    const overLimit = cur.length >= SV_CAP_MAX_SEGS || (s.end - curStart) >= SV_CAP_MAX_DUR;
-    if (SV_CAP_BREAK_RE.test(txt) || overLimit || i === subtitles.length - 1) {
-      groups.push(cur);
-      cur = [];
-    }
+  let prevEnd = null;
+  subtitles.forEach((s, si) => {
+    ensureWords(s).forEach(w => {
+      if (cur.length && prevEnd !== null && w.s - prevEnd > SV_CAP_PAUSE) {
+        units.push(cur);
+        cur = [];
+      }
+      cur.push({ w: w.w, s: w.s, e: w.e, si });
+      prevEnd = w.e;
+      if (SV_CAP_BREAK_RE.test(w.w) || cur.length >= SV_CAP_MAX_WORDS) {
+        units.push(cur);
+        cur = [];
+        prevEnd = null;
+      }
+    });
   });
-  svCapGroups = groups;
-  svCapGroupsSrc = subtitles;
-  svCapGroupOfSeg = ofSeg;
-  return groups;
+  if (cur.length) units.push(cur);
+  svCapUnits = units;
+  svCapUnitsSrc = subtitles;
+  return units;
+}
+/* 二分查找当前时间落在哪个画面字幕单元里，逻辑跟 findSubIdxAt 一致：
+   最后一个"起始词开始时间 <= t"的单元，且 t 没有超出该单元结束时间太多（真正的长停顿仍不显示） */
+function findCapUnitIdx(t) {
+  const units = getCapUnits();
+  let lo = 0, hi = units.length - 1, ans = -1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1;
+    if (units[m][0].s <= t) { ans = m; lo = m + 1; } else hi = m - 1;
+  }
+  if (ans < 0) return -1;
+  const u = units[ans];
+  return (t <= u[u.length - 1].e + SUB_END_GRACE) ? ans : -1;
 }
 
 function toggleKaraoke() {
@@ -1324,24 +1357,29 @@ function updateCaptionKaraoke(t) {
   }
   capKwPrevIdx = idx;
 }
-/* 画面字幕：判断当前句所在的"语义单元"有没有变化，变了才滑入滑出切换；
-   没变（同一语义单元内换到了下一条原始字幕）就只是继续逐词高亮，画面字幕本身不动 */
-function updateCaptionGroup(segIdx, t) {
-  getCapGroups();
-  const groupIdx = svCapGroupOfSeg ? svCapGroupOfSeg[segIdx] : undefined;
-  if (groupIdx === undefined) return;
-  if (groupIdx !== lastCapGroupIdx) {
-    const g = svCapGroups[groupIdx];
-    const texts = [], zhs = [];
-    capWords = [];
-    g.forEach(i => {
-      const s = subtitles[i];
-      texts.push((s.text || '').trim());
-      if (s.zh) zhs.push(s.zh.trim());
-      capWords = capWords.concat(ensureWords(s));
-    });
-    const mergedText = texts.join(' ');
-    const mergedZh = zhs.join(' ');
+/* 画面字幕：判断当前时间落在哪个字幕单元（一句真话/一个小节），变了才滑入滑出切换；
+   没变（同一单元内继续播放）就只是继续逐词高亮，画面字幕本身不动。
+   独立于字幕栏/列表用的 segIdx，自己按时间直接查（findCapUnitIdx），
+   所以调用方不用先判断有没有命中原始字幕条目——没有活跃单元时这里自己清空显示 */
+function updateCaptionUnit(t) {
+  const idx = findCapUnitIdx(t);
+  if (idx < 0) {
+    if (lastCapGroupIdx !== -1) {
+      lastCapGroupIdx = -1;
+      capWords = [];
+      capKwSpans = [];
+      capKwPrevIdx = -1;
+      lastCapText = '';
+      document.getElementById('video-caption').innerHTML = '';
+    }
+    return;
+  }
+  if (idx !== lastCapGroupIdx) {
+    const words = getCapUnits()[idx];
+    capWords = words;
+    const mergedText = words.map(w => w.w).join(' ');
+    const sis = [...new Set(words.map(w => w.si))];
+    const mergedZh = sis.map(si => subtitles[si].zh).filter(Boolean).join(' ');
     const wh = wordSpansHtml(mergedText);
     const cap = document.getElementById('video-caption');
     const oldCapEn = cap.querySelector('.cap-en');
@@ -1369,7 +1407,7 @@ function updateCaptionGroup(segIdx, t) {
     }
     capKwSpans = [...newCapEn.querySelectorAll('.kw')];
     capKwPrevIdx = -1;
-    lastCapGroupIdx = groupIdx;
+    lastCapGroupIdx = idx;
     lastCapText = mergedText;
   }
   updateCaptionKaraoke(t);
@@ -2731,9 +2769,6 @@ function updateCurrentSubtitle(t) {
         ...activeRows.map(r => [...r.querySelectorAll('.kw')]),
       ];
     }
-    // 画面内嵌字幕：只有当前句所在的"语义单元"（按句号/逗号等结尾合并的连续字幕条目）变了
-    // 才滑入滑出切换，同一单元内继续逐词高亮，不再是每条字幕都单独切一次
-    updateCaptionGroup(segIdx, t);
   } else {
     enEl.textContent = '';
     zhEl.textContent = '';
@@ -2744,15 +2779,10 @@ function updateCurrentSubtitle(t) {
       activeRowEls.forEach(el => el.classList.remove('active'));
       activeRowEls = [];
     }
-    if (lastCapGroupIdx !== -1) {
-      lastCapGroupIdx = -1;
-      capWords = [];
-      capKwSpans = [];
-      capKwPrevIdx = -1;
-      lastCapText = '';
-      document.getElementById('video-caption').innerHTML = '';
-    }
   }
+  // 画面内嵌字幕自己按时间独立判断显示哪个单元（一句真话/一个小节），
+  // 边界跟字幕栏/列表用的原始字幕条目边界（segIdx）不是一回事，所以放在 if/else 外面单独调用
+  updateCaptionUnit(t);
 }
 
 /* ── 遮挡原片烧录字幕 ── */
@@ -3339,7 +3369,7 @@ function editSubtitle(i, e) {
       delete s.words;   // 文本变了，词级时间失效，改用估算
       saveSubtitles();
       lastActiveSub = null;
-      svCapGroups = null;   // 编辑可能改了结尾标点，画面字幕的语义单元分组要重算
+      svCapUnits = null;   // 编辑可能改了结尾标点/词级时间，画面字幕单元要重算
       lastCapGroupIdx = -1;
       showToast('字幕已保存');
     }
@@ -5342,9 +5372,8 @@ async function resetAll() {
   document.getElementById('video-caption').innerHTML = '';
   kwSets = [];
   kwPrevIdx = -1;
-  svCapGroups = null;
-  svCapGroupsSrc = null;
-  svCapGroupOfSeg = null;
+  svCapUnits = null;
+  svCapUnitsSrc = null;
   lastCapGroupIdx = -1;
   capWords = [];
   capKwSpans = [];
