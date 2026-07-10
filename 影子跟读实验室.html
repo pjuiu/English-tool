@@ -41,6 +41,8 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;   /* 标题区+按钮区加起来在手机宽度下放不下一行，允许换行，
+                          否则 header 会把整个页面撑宽，导致全站被浏览器整体缩放显示、所有文字被切掉 */
   }
   header h1 { font-size: 18px; font-weight: 600; letter-spacing: .5px; }
   header span { font-size: 13px; color: var(--text-muted); }
@@ -314,6 +316,11 @@
   body.simple-mode #subtitle-list-wrap,
   body.simple-mode #diag-panel,
   body.simple-mode #url-video-toggle { display: none !important; }
+  /* 已经加载了素材之后，链接输入区/拖拽区就没必要占地方了——只有还没加载任何东西时才需要它们 */
+  body.simple-mode.has-file #url-row,
+  body.simple-mode.has-file #url-note { display: none !important; }
+  /* 播放控制区里跟标签页功能重复、或者手机上用不到的按钮（重播本句/逐句跟读入口/自动跟读/快捷键提示） */
+  body.simple-mode .sv-hide { display: none !important; }
   #sv-tabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--border); }
   .sv-tab {
     flex: 1; padding: 10px 4px; text-align: center; font-size: 14px; color: var(--text-muted);
@@ -693,7 +700,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260710d</span>
+    <span>Shadow Reading Lab · v20260710e</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -834,11 +841,11 @@
     </div>
     <div class="ctrl-group">
       <button class="btn" onclick="prevSentence()">⏮ 上一句</button>
-      <button class="btn" onclick="replayCurrentSentence()">🔂 重播本句</button>
+      <button class="btn sv-hide" onclick="replayCurrentSentence()">🔂 重播本句</button>
       <button class="btn" onclick="nextSentence()">⏭ 下一句</button>
-      <button class="btn" onclick="enterPracticeHere()" title="进入逐句跟读练习（听→录→评分→下一句）">🎤 逐句跟读</button>
-      <button class="btn" id="auto-shadow-btn" onclick="toggleAutoShadow()" title="全自动影子跟读：播一句→自动录你跟读→自动下一句，全程免手动">🤖 自动跟读</button>
-      <span id="auto-status" style="font-size:12px;color:var(--text-muted);"></span>
+      <button class="btn sv-hide" onclick="enterPracticeHere()" title="进入逐句跟读练习（听→录→评分→下一句）">🎤 逐句跟读</button>
+      <button class="btn sv-hide" id="auto-shadow-btn" onclick="toggleAutoShadow()" title="全自动影子跟读：播一句→自动录你跟读→自动下一句，全程免手动">🤖 自动跟读</button>
+      <span id="auto-status" class="sv-hide" style="font-size:12px;color:var(--text-muted);"></span>
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">倍速</span>
@@ -856,7 +863,7 @@
         <div id="progress-fill"></div>
       </div>
     </div>
-    <div id="shortcut-hint">快捷键：空格 播放/暂停 · ← → ±5 秒 · R 重播本句 · P/N 上一句/下一句 · M 录音 ｜ 跟读练习中：空格 听原句 · R 录音 · C 对比 · N/P 切句 · Esc 退出</div>
+    <div id="shortcut-hint" class="sv-hide">快捷键：空格 播放/暂停 · ← → ±5 秒 · R 重播本句 · P/N 上一句/下一句 · M 录音 ｜ 跟读练习中：空格 听原句 · R 录音 · C 对比 · N/P 切句 · Esc 退出</div>
   </div>
 
   <!-- 简洁模式：视频/播放控制沿用上面共用的那一套，这里只是替换掉下方的字幕列表+侧栏工具面板 -->
@@ -1356,6 +1363,7 @@ function loadFile(file) {
   document.getElementById('file-meta').textContent = file._remoteUrl ? '🎧 在线播放（不支持本地转写）' : formatSize(file.size);
   document.getElementById('upload-zone').style.display = 'none';
   document.getElementById('main').classList.add('open');
+  document.body.classList.add('has-file');   // 简洁模式下已经加载了素材，链接输入区就没必要占地方了
   initWaveSurfer(file);
   subtitles = [];
   const fkLoading = subsKey();
@@ -2521,14 +2529,11 @@ function updateCurrentSubtitle(t) {
       activeRowEls = activeRows;
       activeRows.forEach(activeRow => {
         activeRow.classList.add('active');
-        // 让当前句始终在所在列表可视区内（旧列表和简洁模式列表各自的滚动容器）
-        const wrap = activeRow.closest('#subtitle-list-wrap, #sv-sub-tab');
-        if (wrap) {
-          const top = activeRow.offsetTop;
-          if (top < wrap.scrollTop + 20 || top > wrap.scrollTop + wrap.clientHeight - 50) {
-            wrap.scrollTop = top - wrap.clientHeight / 2;
-          }
-        }
+        // 让当前句始终在所在列表可视区内（旧列表和简洁模式列表各自的滚动容器）。
+        // 用原生 scrollIntoView + smooth 而不是手动瞬间跳到"居中"位置——
+        // 之前那种每次都强制居中的跳变在真机上观感很粗暴，像是"一整页一整页地跳"，
+        // block:'nearest' 只在真正超出可视范围时才滚动，且只挪最小必要距离，更接近"跟着走"的感觉
+        activeRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
       // 缓存当前句的词元素（字幕栏 / 视频字幕 / 列表行×N），供卡拉OK逐帧点亮
       kwSets = [
@@ -4645,6 +4650,14 @@ async function exportCutFile(i) {
     // 不检查的话会显示"导出成功"但实际下载的是 0 字节的坏文件，用户毫无察觉
     if (!data || data.length === 0) {
       diagLog('输出为空，最近 ffmpeg 日志: ' + ffRecentLogs.slice(-10).join(' | '));
+      // AV1 编码的视频源，浏览器里跑的这个 ffmpeg 精简版解不了码（"Not yet implemented"），
+      // 只要涉及重新编码（烧字幕/遮罩/竖屏）就会失败；纯拷贝的无损快剪不用解码，不受影响。
+      // B 站等平台默认经常给 AV1 编码，这也是之前修复"只有声音没画面"时顺带改成优先要 H.264 编码的原因，
+      // 但改动只对之后新下载的文件生效，这个视频文件本身很可能是那次修复前下载的旧文件
+      const logsText = ffRecentLogs.join(' ');
+      if (/av1|Not yet implemented/i.test(logsText)) {
+        throw new Error('这个视频是 AV1 编码，浏览器里的精简版 ffmpeg 解不了码，没法烧字幕/加遮罩/转竖屏（无损快剪不受影响）。请删除这个文件重新下载一次（下载画质优先改成了 H.264，新下载的不会有这个问题）。');
+      }
       throw new Error('ffmpeg 处理后输出为空。最近日志：' + ffRecentLogs.slice(-6).join(' | '));
     }
     const blob = new Blob([data.buffer], { type: currentFile.type || 'application/octet-stream' });
@@ -4781,6 +4794,7 @@ async function resetAll() {
   kwPrevIdx = -1;
   currentFile = null;
   document.getElementById('main').classList.remove('open');
+  document.body.classList.remove('has-file');
   document.getElementById('upload-zone').style.display = 'block';
   document.getElementById('file-input').value = '';
   document.getElementById('transcribe-status').textContent = '';
