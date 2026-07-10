@@ -568,6 +568,16 @@
   #url-note { margin: 6px 16px 0; font-size: 11.5px; color: var(--text-muted); }
   #url-platform-badge { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
   #url-status-line { margin: 6px 16px 0; font-size: 12.5px; color: var(--accent2); min-height: 16px; }
+  #diag-panel { margin: 8px 16px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
+  #diag-head { padding: 6px 10px; font-size: 11.5px; color: var(--text-muted); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+  #diag-toggle-ico { margin-left: auto; }
+  #diag-log {
+    margin: 0; padding: 8px 10px; font-size: 11px; line-height: 1.6; max-height: 220px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all; background: #1e1c1a; color: #c8e0c8;
+    font-family: ui-monospace, Menlo, Consolas, monospace; display: none; border-top: 1px solid var(--border);
+  }
+  #diag-panel.open #diag-log { display: block; }
+  #diag-panel.open #diag-toggle-ico { transform: rotate(180deg); }
   #confirm-bar {
     position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
     background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
@@ -657,7 +667,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260710b</span>
+    <span>Shadow Reading Lab · v20260710c</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -703,6 +713,10 @@
 </label>
 <div id="url-status-line"></div>
 <div id="url-note">Apple Podcasts 和普通直链可直接解析播放；YouTube / B站 / Spotify 等需要下载的链接，先双击 shadow_reader 里的「启动.bat」（留着后台跑，不用打开那个网页），再在这里粘贴链接即可自动下载导入——没启动的话会弹出图文指引。</div>
+<div id="diag-panel">
+  <div id="diag-head" onclick="toggleDiagPanel()">🔧 诊断信息（遇到问题时把这里的内容发给我）<span id="diag-toggle-ico">▾</span></div>
+  <pre id="diag-log"></pre>
+</div>
 
 <!-- Upload Zone -->
 <div id="upload-zone" onclick="document.getElementById('file-input').click()"
@@ -4420,6 +4434,12 @@ async function ensureFFmpeg() {
   await loadScriptOnce(ffBase + '/ffmpeg.js');
   await loadScriptOnce('https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js');
   const ff = new FFmpegWASM.FFmpeg();
+  // ff.exec() 命令内部失败时不抛异常，只会静默留下空文件——
+  // 唯一能看到真实原因的地方是这些日志行，留一份最近的滚动记录，失败时拼进报错信息里
+  ff.on('log', ({ message }) => {
+    ffRecentLogs.push(message);
+    if (ffRecentLogs.length > 30) ffRecentLogs.shift();
+  });
   await ff.load({
     coreURL: await FFmpegUtil.toBlobURL(coreBase + '/ffmpeg-core.js', 'text/javascript'),
     wasmURL: await FFmpegUtil.toBlobURL(coreBase + '/ffmpeg-core.wasm', 'application/wasm'),
@@ -4429,12 +4449,15 @@ async function ensureFFmpeg() {
   setCutStatus('');
   return ff;
 }
+let ffRecentLogs = [];
 async function exportCutFile(i) {
   const c = cutSegments[i];
   if (!c) return;
   if (!currentFile) { showToast('请先加载文件'); return; }
   if (currentFile.size > 500 * 1024 * 1024 &&
       !(await showConfirmBar('文件超过 500MB，浏览器内存可能不足导致失败。大文件建议用 shadow_reader 完整版导出。仍要尝试吗？'))) return;
+  ffRecentLogs = [];
+  diagLog(`开始导出片段 ${c.label}：${c.start}s ~ ${c.end}s`);
   try {
     const ff = await ensureFFmpeg();
     const ext = (currentFileName.match(/\.[^.]+$/) || ['.mp4'])[0].toLowerCase();
@@ -4451,6 +4474,7 @@ async function exportCutFile(i) {
     let subFilter = '';
     if (isVideoFile(currentFile) && subtitles.length > 0) {
       const segSubs = subtitles.filter(s => s.end > c.start && s.start < c.end);
+      diagLog(`片段内命中 ${segSubs.length} 条字幕（总共 ${subtitles.length} 条）`);
       if (segSubs.length > 0) {
         const srt = segSubs.map((s, idx) => {
           const relStart = Math.max(0, s.start - c.start);
@@ -4458,6 +4482,7 @@ async function exportCutFile(i) {
           return `${idx + 1}\n${secToSrtTime(relStart)} --> ${secToSrtTime(relEnd)}\n${s.text}\n`;
         }).join('\n');
         await ff.writeFile('burn.srt', srt);
+        diagLog(`已写入 burn.srt，${srt.length} 字符，前100字符预览: ${srt.slice(0,100).replace(/\n/g,'\\n')}`);
         subFilter = "subtitles=burn.srt:force_style='FontName=Arial,FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=1.5,MarginV=30'";
       }
     }
@@ -4472,27 +4497,37 @@ async function exportCutFile(i) {
       ? `⏳ 正在导出 ${c.label}（需要重新编码${subFilter ? '+烧录字幕' : ''}${maskOrig ? '+遮罩原字幕' : ''}，${Math.round((c.end - c.start) / 60)} 分钟片段约需 5–15 分钟，请耐心等）…`
       : `⏳ 正在导出 ${c.label}…`);
     const outName = 'clip' + ext;
+    let cmd;
     if (vertical) {
       // 小红书竖屏：1080×1920，视频居中上下黑边（重编码）
       const vf = 'scale=1080:-2:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black'
         + (burnChain ? ',' + burnChain : '');
-      await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName,
+      cmd = ['-ss', String(c.start), '-to', String(c.end), '-i', inName,
         '-vf', vf,
         '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
-        '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outName]);
+        '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outName];
     } else if (burnChain) {
-      await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName,
+      cmd = ['-ss', String(c.start), '-to', String(c.end), '-i', inName,
         '-vf', burnChain,
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
-        '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-avoid_negative_ts', 'make_zero', outName]);
+        '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-avoid_negative_ts', 'make_zero', outName];
     } else {
       // -ss 放在 -i 之前做输入侧快速定位（无损、极快），但配合 -c copy 时容易产生负数时间戳，
       // 且视频/音频两条流各自对齐到的起点不一致——这就是导出的片段音画不同步的真正原因，
       // 在任何播放器打开都一样，不是某个播放器的兼容性问题。
       // -avoid_negative_ts make_zero 让 ffmpeg 把两条流的时间戳统一重新对齐到从 0 开始，消除这个偏差
-      await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName, '-c', 'copy', '-avoid_negative_ts', 'make_zero', outName]);
+      cmd = ['-ss', String(c.start), '-to', String(c.end), '-i', inName, '-c', 'copy', '-avoid_negative_ts', 'make_zero', outName];
     }
+    diagLog(`ffmpeg 命令: ${cmd.join(' ')}`);
+    await ff.exec(cmd);
     const data = await ff.readFile(outName);
+    diagLog(`输出文件大小: ${data ? data.length : 0} 字节`);
+    // ff.exec() 内部命令失败时不会抛异常，只会静默留下一个空文件——
+    // 不检查的话会显示"导出成功"但实际下载的是 0 字节的坏文件，用户毫无察觉
+    if (!data || data.length === 0) {
+      diagLog('输出为空，最近 ffmpeg 日志: ' + ffRecentLogs.slice(-10).join(' | '));
+      throw new Error('ffmpeg 处理后输出为空。最近日志：' + ffRecentLogs.slice(-6).join(' | '));
+    }
     const blob = new Blob([data.buffer], { type: currentFile.type || 'application/octet-stream' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -4647,8 +4682,25 @@ function showToast(msg, duration = 2500) {
 // 手机上不方便看开发者工具，遇到问题时把这个面板的内容整段发过来，不用再靠描述"卡住了"来猜
 // 调试用的诊断面板已经排查完问题并移除；调用点留在原地不逐一清理，
 // 这两个函数就地退化成空操作，代价可忽略（几个字符串模板求值）
-function diagLog(msg) {}
-function diagReportMediaState(label) {}
+const diagT0 = Date.now();
+function diagLog(msg) {
+  const el = document.getElementById('diag-log');
+  if (!el) return;
+  const t = ((Date.now() - diagT0) / 1000).toFixed(1);
+  el.textContent += `[+${t}s] ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
+  document.getElementById('diag-panel').classList.add('open');
+}
+function toggleDiagPanel() {
+  document.getElementById('diag-panel').classList.toggle('open');
+}
+function diagReportMediaState(label) {
+  const m = ws && ws.getMediaElement ? ws.getMediaElement() : null;
+  if (!m) { diagLog(`${label}: 没有媒体元素`); return; }
+  diagLog(`${label}: readyState=${m.readyState} networkState=${m.networkState} paused=${m.paused} `
+    + `currentTime=${m.currentTime.toFixed(2)} duration=${isFinite(m.duration)?m.duration.toFixed(2):m.duration} `
+    + `src=${(m.currentSrc||'').slice(0,60)} error=${m.error ? (m.error.code+':'+m.error.message) : '无'}`);
+}
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
