@@ -762,7 +762,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260710j</span>
+    <span>Shadow Reading Lab · v20260711a</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -1167,9 +1167,19 @@ let karaokeEnabled = localStorage.getItem('shadow_karaoke') !== '0';   // 逐词
 let skipGaps = false;        // 跳过句间空白
 let favs = new Set();        // 收藏的句子下标
 let favOnly = false;         // 只看收藏
-let kwSets = [];             // 当前句的词元素缓存 [subEnSpans, capSpans, rowSpans]
+let kwSets = [];             // 当前句的词元素缓存 [subEnSpans, rowSpans]（字幕栏 + 列表行，按单条字幕驱动）
 let kwPrevIdx = -1;
 let karaokeRaf = null;
+// 画面内嵌字幕独立一套状态：按"句号/逗号等结尾"把连续字幕条目合成一个完整语义单元再切换，
+// 不跟字幕栏/列表那套按"单条字幕"驱动的逻辑共用，否则合并单元和单条字幕的词下标对不上
+let svCapGroups = null;       // [[segIdx,...], ...] 语义单元分组，按 subtitles 数组引用缓存
+let svCapGroupsSrc = null;
+let svCapGroupOfSeg = null;   // segIdx -> groupIdx
+let lastCapGroupIdx = -1;
+let capWords = [];            // 当前画面字幕语义单元的合并词时间轴（跨多条字幕拼接，绝对时间戳）
+let capKwSpans = [];
+let capKwPrevIdx = -1;
+let lastCapText = '';         // 当前画面字幕显示的合并文本，点词查义时取这份而不是单条字幕的 text
 
 /* 二分查找"最后一个 start<=t 的句子下标"——subIndexAt/findSubIdxAt 共用的核心 */
 function lastIdxWithStartLE(t) {
@@ -1212,6 +1222,39 @@ function ensureWords(s) {
   return s.words;
 }
 
+/* 画面字幕的"语义单元"分组：把连续的字幕条目按结尾标点（句号/问号/感叹号/逗号/分号/冒号）
+   合并成一组，同一组内继续算"同一句话没说完"，只有跨组时画面字幕才滑入滑出切换。
+   Whisper 按停顿切出来的条目常常比一个完整句子/小节短，不这样合并的话画面字幕看起来
+   就是"一行一行"往上跳，而不是自然的"说完一句/一个小节才换" */
+const SV_CAP_BREAK_RE = /[.!?,;:][)\]"'"'』」]*$/;
+// 保险上限：万一转写没有标点（比如某些自动字幕/导入的 SRT 本来就不带标点），
+// 避免一个语义单元无限吞并下去变成一整段文字都挤在画面字幕里——按条数和总时长双重兜底，
+// 到了上限强制切一刀，退化成接近"按行"但比单条稍大块的效果，不会比原来的体验更差
+const SV_CAP_MAX_SEGS = 6;
+const SV_CAP_MAX_DUR = 12;
+function getCapGroups() {
+  if (svCapGroups && svCapGroupsSrc === subtitles) return svCapGroups;
+  const groups = [];
+  const ofSeg = [];
+  let cur = [];
+  let curStart = 0;
+  subtitles.forEach((s, i) => {
+    if (cur.length === 0) curStart = s.start;
+    cur.push(i);
+    ofSeg[i] = groups.length;
+    const txt = (s.text || '').trim();
+    const overLimit = cur.length >= SV_CAP_MAX_SEGS || (s.end - curStart) >= SV_CAP_MAX_DUR;
+    if (SV_CAP_BREAK_RE.test(txt) || overLimit || i === subtitles.length - 1) {
+      groups.push(cur);
+      cur = [];
+    }
+  });
+  svCapGroups = groups;
+  svCapGroupsSrc = subtitles;
+  svCapGroupOfSeg = ofSeg;
+  return groups;
+}
+
 function toggleKaraoke() {
   karaokeEnabled = !karaokeEnabled;
   localStorage.setItem('shadow_karaoke', karaokeEnabled ? '1' : '0');
@@ -1231,6 +1274,8 @@ function toggleSkipGap() {
 function clearKaraoke() {
   kwSets.forEach(set => set && set.forEach(el => el.classList.remove('on')));
   kwPrevIdx = -1;
+  capKwSpans.forEach(el => el.classList.remove('on'));
+  capKwPrevIdx = -1;
 }
 function updateKaraoke(t) {
   if (!karaokeEnabled || !lastActiveSub || !kwSets.length) return;
@@ -1247,25 +1292,92 @@ function updateKaraoke(t) {
       el.classList.toggle('on', wi <= idx);   // 卡拉OK：已唱过的词全部点亮
     });
   });
-  // 画面内嵌字幕固定只显示 2 行高度，长句子播到后半段时，正在读的词早就超出这 2 行了——
-  // 让它跟着播放进度自动往下滚动，始终把当前词留在可见范围内，而不是从头静态截断看不到后面
+  kwPrevIdx = idx;
+}
+/* 画面字幕的逐词高亮 + 自动滚动——独立于 updateKaraoke，因为画面字幕现在按"语义单元"
+   （可能拼接了好几条字幕）驱动，用的是 capWords 这条单独的合并时间轴，下标空间跟
+   单条字幕的 kwSets 对不上，不能共用同一套 idx */
+function updateCaptionKaraoke(t) {
+  if (!karaokeEnabled || !capWords.length || !capKwSpans.length) return;
+  let idx = -1;
+  for (let i = 0; i < capWords.length; i++) {
+    if (t >= capWords[i].s) idx = i; else break;
+  }
+  if (idx === capKwPrevIdx) return;
+  // capKwSpans 只包含带字母的 token（.kw span，标点单独成 token 时不会被包 span），
+  // 数组下标不等于 token 序号，必须用 data-wi 而不是循环位置来比对
+  capKwSpans.forEach(el => {
+    const wi = Number(el.dataset.wi);
+    el.classList.toggle('on', wi <= idx);
+  });
+  // 画面内嵌字幕固定只显示 2 行高度，语义单元拼接后更容易超出——
+  // 让它跟着播放进度自动往下滚动，始终把当前词留在可见范围内
   const capEn = document.querySelector('#video-caption .cap-en');
-  if (capEn) {
-    const activeWord = capEn.querySelector(`.kw[data-wi="${idx}"]`);
-    if (activeWord) {
-      const wordBottom = activeWord.offsetTop + activeWord.offsetHeight;
-      if (wordBottom > capEn.scrollTop + capEn.clientHeight) {
-        capEn.scrollTop = wordBottom - capEn.clientHeight;
-      } else if (activeWord.offsetTop < capEn.scrollTop) {
-        capEn.scrollTop = activeWord.offsetTop;
-      }
+  const activeWord = capKwSpans.find(el => Number(el.dataset.wi) === idx);
+  if (capEn && activeWord) {
+    const wordBottom = activeWord.offsetTop + activeWord.offsetHeight;
+    if (wordBottom > capEn.scrollTop + capEn.clientHeight) {
+      capEn.scrollTop = wordBottom - capEn.clientHeight;
+    } else if (activeWord.offsetTop < capEn.scrollTop) {
+      capEn.scrollTop = activeWord.offsetTop;
     }
   }
-  kwPrevIdx = idx;
+  capKwPrevIdx = idx;
+}
+/* 画面字幕：判断当前句所在的"语义单元"有没有变化，变了才滑入滑出切换；
+   没变（同一语义单元内换到了下一条原始字幕）就只是继续逐词高亮，画面字幕本身不动 */
+function updateCaptionGroup(segIdx, t) {
+  getCapGroups();
+  const groupIdx = svCapGroupOfSeg ? svCapGroupOfSeg[segIdx] : undefined;
+  if (groupIdx === undefined) return;
+  if (groupIdx !== lastCapGroupIdx) {
+    const g = svCapGroups[groupIdx];
+    const texts = [], zhs = [];
+    capWords = [];
+    g.forEach(i => {
+      const s = subtitles[i];
+      texts.push((s.text || '').trim());
+      if (s.zh) zhs.push(s.zh.trim());
+      capWords = capWords.concat(ensureWords(s));
+    });
+    const mergedText = texts.join(' ');
+    const mergedZh = zhs.join(' ');
+    const wh = wordSpansHtml(mergedText);
+    const cap = document.getElementById('video-caption');
+    const oldCapEn = cap.querySelector('.cap-en');
+    const oldCapZh = cap.querySelector('.cap-zh');
+    const isFirstCap = !oldCapEn;
+    if (oldCapEn) {
+      oldCapEn.classList.remove('cap-en');
+      oldCapEn.classList.add('cap-anim-out');
+      setTimeout(() => oldCapEn.remove(), 300);
+    }
+    if (oldCapZh) {
+      oldCapZh.classList.remove('cap-zh');
+      oldCapZh.classList.add('cap-anim-out');
+      setTimeout(() => oldCapZh.remove(), 300);
+    }
+    const newCapEn = document.createElement('span');
+    newCapEn.className = 'cap-en' + (isFirstCap ? '' : ' cap-anim-in');
+    newCapEn.innerHTML = wh;
+    cap.appendChild(newCapEn);
+    if (subMode === 'bilingual' && mergedZh) {
+      const newCapZh = document.createElement('div');
+      newCapZh.className = 'cap-zh' + (isFirstCap ? '' : ' cap-anim-in');
+      newCapZh.innerHTML = `<span>${escHtml(mergedZh)}</span>`;
+      cap.appendChild(newCapZh);
+    }
+    capKwSpans = [...newCapEn.querySelectorAll('.kw')];
+    capKwPrevIdx = -1;
+    lastCapGroupIdx = groupIdx;
+    lastCapText = mergedText;
+  }
+  updateCaptionKaraoke(t);
 }
 function karaokeTick() {
   if (!ws || !ws.isPlaying() || !karaokeEnabled) { karaokeRaf = null; return; }
   updateKaraoke(ws.getCurrentTime());
+  updateCaptionKaraoke(ws.getCurrentTime());
   karaokeRaf = requestAnimationFrame(karaokeTick);
 }
 function ensureKaraokeLoop() {
@@ -2579,7 +2691,9 @@ document.getElementById('subtitle-list').addEventListener('click', e => {
 // 视频画面内嵌字幕：之前只有容器 pointer-events:none 却没绑监听，点词完全无反应
 document.getElementById('video-caption').addEventListener('click', e => {
   if (blindMode) return;
-  wordClickHandler(e, () => lastActiveSub ? lastActiveSub.text : '');
+  // 画面字幕现在可能是好几条字幕拼成的一个语义单元，查义时给出完整拼接文本做上下文，
+  // 而不是只有当前那一条原始字幕的 text（否则上下文会被截断在句子中间）
+  wordClickHandler(e, () => lastCapText || (lastActiveSub ? lastActiveSub.text : ''));
 });
 
 function updateCurrentSubtitle(t) {
@@ -2594,31 +2708,6 @@ function updateCurrentSubtitle(t) {
       const wh = wordSpansHtml(seg.text);
       enEl.innerHTML = wh;
       zhEl.textContent = subMode === 'bilingual' ? (seg.zh || '') : '';
-      // 视频内嵌字幕（同样逐词）——句子切换时旧的一句飞出、新的一句飞入，不再是硬切换
-      const cap = document.getElementById('video-caption');
-      const oldCapEn = cap.querySelector('.cap-en');
-      const oldCapZh = cap.querySelector('.cap-zh');
-      const isFirstCap = !oldCapEn;
-      if (oldCapEn) {
-        oldCapEn.classList.remove('cap-en');
-        oldCapEn.classList.add('cap-anim-out');
-        setTimeout(() => oldCapEn.remove(), 300);
-      }
-      if (oldCapZh) {
-        oldCapZh.classList.remove('cap-zh');
-        oldCapZh.classList.add('cap-anim-out');
-        setTimeout(() => oldCapZh.remove(), 300);
-      }
-      const newCapEn = document.createElement('span');
-      newCapEn.className = 'cap-en' + (isFirstCap ? '' : ' cap-anim-in');
-      newCapEn.innerHTML = wh;
-      cap.appendChild(newCapEn);
-      if (subMode === 'bilingual' && seg.zh) {
-        const newCapZh = document.createElement('div');
-        newCapZh.className = 'cap-zh' + (isFirstCap ? '' : ' cap-anim-in');
-        newCapZh.innerHTML = `<span>${escHtml(seg.zh)}</span>`;
-        cap.appendChild(newCapZh);
-      }
       lastActiveSub = seg;
       kwPrevIdx = -1;
       // 局部行高亮：直接定位新旧两行，不再遍历整个列表。
@@ -2635,15 +2724,16 @@ function updateCurrentSubtitle(t) {
         // block:'nearest' 只在真正超出可视范围时才滚动，且只挪最小必要距离，更接近"跟着走"的感觉
         activeRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
-      // 缓存当前句的词元素（字幕栏 / 视频字幕 / 列表行×N），供卡拉OK逐帧点亮。
-      // 画面字幕这份要用 newCapEn（刚插入的新句）而不是 cap.querySelectorAll——
-      // 飞出动画播完之前，旧句子的 span 还短暂留在 cap 容器里，cap 整体查找会连旧的一起抓进来
+      // 缓存当前句的词元素（字幕栏 / 列表行×N），供卡拉OK逐帧点亮。
+      // 画面字幕不再用这套——它现在按"语义单元"（可能拼接了好几条字幕）独立驱动，见 updateCaptionGroup
       kwSets = [
         [...enEl.querySelectorAll('.kw')],
-        [...newCapEn.querySelectorAll('.kw')],
         ...activeRows.map(r => [...r.querySelectorAll('.kw')]),
       ];
     }
+    // 画面内嵌字幕：只有当前句所在的"语义单元"（按句号/逗号等结尾合并的连续字幕条目）变了
+    // 才滑入滑出切换，同一单元内继续逐词高亮，不再是每条字幕都单独切一次
+    updateCaptionGroup(segIdx, t);
   } else {
     enEl.textContent = '';
     zhEl.textContent = '';
@@ -2651,9 +2741,16 @@ function updateCurrentSubtitle(t) {
       lastActiveSub = null;
       kwSets = [];
       kwPrevIdx = -1;
-      document.getElementById('video-caption').innerHTML = '';
       activeRowEls.forEach(el => el.classList.remove('active'));
       activeRowEls = [];
+    }
+    if (lastCapGroupIdx !== -1) {
+      lastCapGroupIdx = -1;
+      capWords = [];
+      capKwSpans = [];
+      capKwPrevIdx = -1;
+      lastCapText = '';
+      document.getElementById('video-caption').innerHTML = '';
     }
   }
 }
@@ -3242,6 +3339,8 @@ function editSubtitle(i, e) {
       delete s.words;   // 文本变了，词级时间失效，改用估算
       saveSubtitles();
       lastActiveSub = null;
+      svCapGroups = null;   // 编辑可能改了结尾标点，画面字幕的语义单元分组要重算
+      lastCapGroupIdx = -1;
       showToast('字幕已保存');
     }
     renderSubtitleList();
@@ -5243,6 +5342,14 @@ async function resetAll() {
   document.getElementById('video-caption').innerHTML = '';
   kwSets = [];
   kwPrevIdx = -1;
+  svCapGroups = null;
+  svCapGroupsSrc = null;
+  svCapGroupOfSeg = null;
+  lastCapGroupIdx = -1;
+  capWords = [];
+  capKwSpans = [];
+  capKwPrevIdx = -1;
+  lastCapText = '';
   currentFile = null;
   document.getElementById('main').classList.remove('open');
   document.body.classList.remove('has-file');
