@@ -657,7 +657,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260710a</span>
+    <span>Shadow Reading Lab · v20260710b</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
@@ -693,13 +693,16 @@
 <!-- 链接载入（顶部，粘贴 YouTube / Spotify / Apple Podcasts / 直链 均可） -->
 <div id="url-row">
   <span id="url-platform-badge"></span>
-  <input type="text" id="media-url" placeholder="粘贴 YouTube / Spotify / Apple Podcasts / 音视频直链… 后回车"
+  <input type="text" id="media-url" placeholder="粘贴 YouTube / Spotify / Apple Podcasts / B站 / 音视频直链… 后回车"
          oninput="updatePlatformBadge()" onkeydown="if(event.key==='Enter')loadFromUrl()" />
   <button class="btn" id="url-load-btn" onclick="loadFromUrl()">▶ 开始</button>
   <button class="btn" onclick="pickFileWithHandle()" title="通过系统选择器打开，浏览器会记住位置，下次一键重开">📂 打开并记住</button>
 </div>
+<label id="url-video-toggle" style="display:flex;align-items:center;gap:6px;margin:6px 16px 0;font-size:12.5px;color:var(--text-muted);">
+  <input type="checkbox" id="url-want-video" /> 🎬 下载画面（视频链接需要看画面时勾选；仅通过本地下载服务的链接生效，勾选后下载更慢）
+</label>
 <div id="url-status-line"></div>
-<div id="url-note">Apple Podcasts 和普通直链可直接解析播放；YouTube / Spotify 只需先双击 shadow_reader 里的「启动.bat」（留着后台跑，不用打开那个网页），再在这里粘贴链接即可自动下载导入——没启动的话会弹出图文指引。</div>
+<div id="url-note">Apple Podcasts 和普通直链可直接解析播放；YouTube / B站 / Spotify 等需要下载的链接，先双击 shadow_reader 里的「启动.bat」（留着后台跑，不用打开那个网页），再在这里粘贴链接即可自动下载导入——没启动的话会弹出图文指引。</div>
 
 <!-- Upload Zone -->
 <div id="upload-zone" onclick="document.getElementById('file-input').click()"
@@ -931,6 +934,9 @@
     <div class="cut-row" style="font-size:12px;color:var(--text-muted);">
       <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="横屏视频导出为 1080×1920 竖屏（上下黑边），适合小红书；需重编码，3分钟片段约等 5-15 分钟">
         <input type="checkbox" id="cut-vertical"> 📱 导出为小红书竖屏 9:16（慢）
+      </label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="原视频画面里烧录的字幕（如自带熟肉字幕）加一条黑条遮住，本地转写得到的新字幕叠在黑条上面，避免两份字幕叠在一起看不清">
+        <input type="checkbox" id="cut-mask-orig-sub"> 🎬 遮住原字幕（叠新字幕时用）
       </label>
       <span style="margin-left:auto;">大视频（&gt;500MB）剪切/竖屏烧字幕请用 shadow_reader 完整版（启动.bat）</span>
     </div>
@@ -4075,9 +4081,12 @@ async function loadViaLocalBackend(url, platform) {
 
   setUrlStatus('🎵 获取音频中…');
   try {
+    // 之前这里写死只要音频，导致 B 站这类视频链接下载回来永远没有画面——
+    // 现在跟着"下载画面"勾选框走，用户想看画面时能真正拿到视频
+    const wantVideo = document.getElementById('url-want-video').checked;
     const startRes = await fetch(LOCAL_BACKEND + '/api/download/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, quality: 'audio' }),
+      body: JSON.stringify({ url, quality: wantVideo ? '720p' : 'audio' }),
     }).then(r => r.json());
     if (startRes.error) throw new Error(startRes.error);
 
@@ -4452,23 +4461,28 @@ async function exportCutFile(i) {
         subFilter = "subtitles=burn.srt:force_style='FontName=Arial,FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=1.5,MarginV=30'";
       }
     }
-    // 烧字幕必须重新编码（画面上的像素要改），没法再用无损快剪的 -c copy，导出会明显变慢
-    const needReencode = vertical || !!subFilter;
+    // 原视频画面里可能已经烧了一份字幕（熟肉），跟新烧的字幕叠在一起会看不清——
+    // 在底部画一条黑条盖住原字幕的位置，再把新字幕叠在黑条上面。只在真的要烧新字幕时才有意义
+    const maskOrig = document.getElementById('cut-mask-orig-sub').checked && !!subFilter;
+    const maskFilter = maskOrig ? 'drawbox=x=0:y=ih*0.85:w=iw:h=ih*0.15:color=black:t=fill' : '';
+    const burnChain = [maskFilter, subFilter].filter(Boolean).join(',');
+    // 烧字幕/遮罩必须重新编码（画面上的像素要改），没法再用无损快剪的 -c copy，导出会明显变慢
+    const needReencode = vertical || !!burnChain;
     setCutStatus(needReencode
-      ? `⏳ 正在导出 ${c.label}（需要重新编码${subFilter ? '+烧录字幕' : ''}，${Math.round((c.end - c.start) / 60)} 分钟片段约需 5–15 分钟，请耐心等）…`
+      ? `⏳ 正在导出 ${c.label}（需要重新编码${subFilter ? '+烧录字幕' : ''}${maskOrig ? '+遮罩原字幕' : ''}，${Math.round((c.end - c.start) / 60)} 分钟片段约需 5–15 分钟，请耐心等）…`
       : `⏳ 正在导出 ${c.label}…`);
     const outName = 'clip' + ext;
     if (vertical) {
       // 小红书竖屏：1080×1920，视频居中上下黑边（重编码）
       const vf = 'scale=1080:-2:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black'
-        + (subFilter ? ',' + subFilter : '');
+        + (burnChain ? ',' + burnChain : '');
       await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName,
         '-vf', vf,
         '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
         '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outName]);
-    } else if (subFilter) {
+    } else if (burnChain) {
       await ff.exec(['-ss', String(c.start), '-to', String(c.end), '-i', inName,
-        '-vf', subFilter,
+        '-vf', burnChain,
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
         '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-avoid_negative_ts', 'make_zero', outName]);
     } else {
@@ -4488,7 +4502,7 @@ async function exportCutFile(i) {
     try { await ff.deleteFile(outName); } catch (e) {}
     try { if (subFilter) await ff.deleteFile('burn.srt'); } catch (e) {}
     setCutStatus(needReencode
-      ? `✓ 已导出 ${c.label}${subFilter ? '（已烧录字幕）' : ''}`
+      ? `✓ 已导出 ${c.label}${subFilter ? '（已烧录字幕' + (maskOrig ? '+遮罩原字幕' : '') + '）' : ''}`
       : `✓ 已导出 ${c.label}（无损快剪，起点对齐到最近关键帧）`);
   } catch (e) {
     setCutStatus('');
