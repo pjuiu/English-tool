@@ -160,6 +160,13 @@
     color: #94a3b8; cursor: pointer; font-size: 14px; padding: 2px 4px;
   }
   .board-del:hover { color: #dc2626; }
+  .board-card-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .board-save {
+    flex-shrink: 0; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px;
+    color: #475569; cursor: pointer; font-size: 12px; padding: 3px 9px;
+  }
+  .board-save:hover:not(:disabled) { background: #f1f5f9; border-color: #94a3b8; }
+  .board-save:disabled { color: #059669; border-color: #a7f3d0; background: #ecfdf5; cursor: default; }
 
   .board-row {
     display: flex;
@@ -274,6 +281,12 @@
     font-size:14px;line-height:1.7;display:none;
   }
   .review-answer.open{display:block;}
+  .spell-summary{text-align:left;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:14px;}
+  .spell-summary-title{font-size:13px;color:#475569;margin-bottom:8px;}
+  .spell-summary-list{display:flex;flex-wrap:wrap;gap:6px;}
+  .spell-summary-item{font-size:12px;padding:3px 9px;border-radius:6px;border:1px solid transparent;}
+  .spell-summary-item.ok{color:#059669;background:#ecfdf5;border-color:#a7f3d0;}
+  .spell-summary-item.no{color:#dc2626;background:#fef2f2;border-color:#fecaca;}
   .review-actions{display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap;}
   .btn.forgot{background:#fff;color:#dc2626;border:1px solid #fecaca;}
   .btn.forgot:hover{background:#fef2f2;}
@@ -395,7 +408,7 @@
 <body>
 
 <header>
-  <div class="logo">📘 English Word Lab <span style="font-size:11px;color:#94a3b8;font-weight:400;">v20260707</span></div>
+  <div class="logo">📘 English Word Lab <span style="font-size:11px;color:#94a3b8;font-weight:400;">v20260710a</span></div>
   <div class="apikey">
     <button class="btn secondary" id="backupBtn" style="padding:5px 10px;font-size:12px;">💾 备份</button>
     <button class="btn secondary" id="restoreBtn" style="padding:5px 10px;font-size:12px;">📥 恢复</button>
@@ -1471,6 +1484,10 @@ function boardBatchProgressHtml(){
     </div>`;
 }
 
+function alreadySaved(word){
+  return getCards().some(c => c.word.toLowerCase() === word.toLowerCase());
+}
+
 function renderBoard(){
   const main = $('#explainMain');
   if(boardItems.length === 0){
@@ -1553,13 +1570,32 @@ function renderBoard(){
           ${badge}
           ${isDict ? '<span class="dict-tag">📖 词典</span>' : ''}
         </div>
-        <button class="board-del" data-idx="${i}">✕</button>
+        <div class="board-card-actions">
+          <button class="board-save" data-idx="${i}" ${alreadySaved(b.word) ? 'disabled' : ''}>${alreadySaved(b.word) ? '✓ Saved' : '+ Save'}</button>
+          <button class="board-del" data-idx="${i}">✕</button>
+        </div>
       </div>
       ${body}
     </div>`;
   }).join('');
 
   main.innerHTML = toolbarHtml + cardsHtml;
+
+  main.querySelectorAll('.board-save').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const b = boardItems[Number(btn.dataset.idx)];
+      if(!b || alreadySaved(b.word)) return;
+      const cards = getCards();
+      cards.unshift({
+        id: Date.now().toString() + Math.random().toString(36).slice(2,7),
+        word: b.word, level: b.level, content: b.content,
+        sourceSentence: b.sourceSentence, savedAt: new Date().toISOString()
+      });
+      setCards(cards);
+      btn.textContent = '✓ Saved';
+      btn.disabled = true;
+    });
+  });
 
   main.querySelectorAll('.board-del').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2064,6 +2100,7 @@ $('#restoreFile').addEventListener('change', e => {
 let reviewQueue = [];
 let reviewIdx = 0;
 let reviewDone = 0;
+let spellSessionResults = [];   // 听写模式本轮的逐词对错记录 [{word, correct}]，完成后汇总展示
 
 function dueCards(cards){
   const now = Date.now();
@@ -2075,6 +2112,7 @@ function initReview(forceAll){
   reviewQueue = forceAll ? cards.slice() : dueCards(cards);
   reviewIdx = 0;
   reviewDone = 0;
+  spellSessionResults = [];   // 新一轮复习开始，清空上一轮的听写对错记录
   renderReview();
 }
 
@@ -2113,6 +2151,15 @@ function renderReview(){
   }
   if(reviewIdx >= reviewQueue.length){
     const doneMsg = reviewDone > 0 ? `本轮复习完成，共复习 ${reviewDone} 次 🎉` : '当前没有到期的卡片 🎉';
+    // 听写模式：汇总这一轮每个词的对错，一眼看出哪些还没掌握，不用回想每一步的结果
+    const wrongCount = spellSessionResults.filter(r => !r.correct).length;
+    const spellSummaryHtml = spellSessionResults.length > 0 ? `
+        <div class="spell-summary">
+          <div class="spell-summary-title">本轮听写：${spellSessionResults.length} 个词，答对 ${spellSessionResults.length - wrongCount} 个${wrongCount ? `，答错 ${wrongCount} 个` : ''}</div>
+          <div class="spell-summary-list">
+            ${spellSessionResults.map(r => `<span class="spell-summary-item ${r.correct ? 'ok' : 'no'}">${r.correct ? '✓' : '✗'} ${escapeHtml(r.word)}</span>`).join('')}
+          </div>
+        </div>` : '';
     area.innerHTML = `
       <div class="review-stage">
         ${reviewStatsHtml()}
@@ -2121,6 +2168,7 @@ function renderReview(){
         <div class="review-card">
           <div style="font-size:16px;font-weight:600;margin-bottom:8px;">${doneMsg}</div>
           <div style="font-size:13px;color:#64748b;">${nextDueText()}</div>
+          ${spellSummaryHtml}
           <div class="review-actions">
             <button class="btn secondary" id="reviewAllBtn">不管到期时间，复习全部 ${total} 张</button>
           </div>
@@ -2148,7 +2196,10 @@ function renderReview(){
           <button class="btn secondary" id="spellReplay">🔊 再听一遍</button>
           ${badge}
           ${blanked ? `<div class="review-source">"${escapeHtml(blanked)}"</div>` : ''}
-          <input id="spellInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入后按 Enter">
+          <input id="spellInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入拼写…">
+          <div class="review-actions" id="spellCheckRow">
+            <button class="btn" id="spellCheckBtn">✓ 检查</button>
+          </div>
           <div id="spellResult"></div>
           <div class="review-actions" id="spellNextRow" style="display:none;">
             <button class="btn" id="spellNextBtn">下一个 →</button>
@@ -2166,8 +2217,10 @@ function renderReview(){
       if(checked) return;
       checked = true;
       wasCorrect = input.value.trim().toLowerCase() === c.word.toLowerCase();
+      spellSessionResults.push({ word: c.word, correct: wasCorrect });
       input.classList.add(wasCorrect ? 'correct' : 'wrong');
       input.disabled = true;
+      $('#spellCheckRow').style.display = 'none';
       $('#spellResult').innerHTML = wasCorrect
         ? `<span class="ok">✓ 正确！</span> ${escapeHtml(c.word)} <span class="ipa" data-ipa="${escapeHtml(c.word)}"></span>`
         : `<span class="no">✗ 正确答案：</span><b>${escapeHtml(c.word)}</b> <span class="ipa" data-ipa="${escapeHtml(c.word)}"></span>`;
@@ -2176,6 +2229,9 @@ function renderReview(){
       $('#spellNextBtn').focus();
     };
     const goNext = () => gradeReview(c, wasCorrect);
+    // 按钮点击是主入口（手机虚拟键盘的"完成/下一步"键不一定会触发标准的 Enter keydown 事件，
+    // 只靠监听键盘事件在手机上会出现"打完字没反应"）；桌面端按 Enter 仍然可以快速触发，两者并存
+    $('#spellCheckBtn').addEventListener('click', doCheck);
     input.addEventListener('keydown', e => { if(e.key === 'Enter') doCheck(); });
     // 判分后焦点移到「下一个」按钮，再按 Enter 即可继续（无 document 级监听，避免一次按键连跳）
     $('#spellNextBtn').addEventListener('click', goNext);
