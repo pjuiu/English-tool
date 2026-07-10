@@ -346,10 +346,21 @@
   .sv-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
   .sv-card .sub-text { font-size: 16px; line-height: 1.6; }
   .sv-card .zh { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+  /* 长句子（很多词）默认折叠到 4 行，避免一张卡片占满整个屏幕；JS 只在真的溢出时才加这个类和"展开"按钮 */
+  .sv-card .sub-text.sv-clamped {
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .sv-expand-btn { font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; padding: 4px 0 0; }
   #main-left #sv-sub-tab { max-height: 62vh; }
   .sv-word { font-size: 17px; font-weight: 700; }
   .sv-ipa { color: var(--text-muted); font-size: 13px; }
   .sv-def { font-size: 13px; line-height: 1.6; margin-top: 4px; }
+  .sv-phrase-badge {
+    font-size: 10px; color: var(--accent2); border: 1px solid var(--accent2);
+    border-radius: 4px; padding: 1px 5px; font-weight: 600;
+  }
+  .sv-dict-scope { display: flex; gap: 6px; margin-bottom: 10px; }
+  .sv-dict-scope .btn { flex: 1; padding: 5px 8px; font-size: 12px; }
   .sv-dict-head { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
   .sv-dict-result { margin-top: 12px; }
   .sv-dict-score { font-size: 20px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
@@ -718,7 +729,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260710f</span>
+    <span>Shadow Reading Lab · v20260710g</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -2716,9 +2727,28 @@ function renderSvSubList() {
     });
     list.appendChild(div);
   });
+  // 长句子先折叠到 4 行，避免一张卡片占满整个可视区域——只在真的溢出时才加折叠+"展开"按钮，
+  // 短句子不会被误伤。直接同步测量（读 scrollHeight 本身就会强制浏览器同步排版，不需要等下一帧——
+  // 用 requestAnimationFrame 反而不可靠，标签页切到后台/不可见时会被无限期延后触发）
+  list.querySelectorAll('.sub-text').forEach(el => {
+    el.classList.add('sv-clamped');
+    if (el.scrollHeight > el.clientHeight + 2) {
+      const btn = document.createElement('button');
+      btn.className = 'sv-expand-btn';
+      btn.textContent = '展开 ▾';
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        el.classList.remove('sv-clamped');
+        btn.remove();
+      };
+      el.insertAdjacentElement('afterend', btn);
+    } else {
+      el.classList.remove('sv-clamped');
+    }
+  });
 }
 
-/* ── 简洁模式：词卡（零 API 成本——单词表来自字幕文本本身，释义/音标来自已有的离线词典，
+/* ── 简洁模式：词卡（零 API 成本——单词/词组表来自字幕文本本身，释义/音标来自已有的离线词典，
      发音用浏览器自带的 speechSynthesis，全部是这个工具里本来就有的能力，只是重新组织成卡片） ── */
 const SV_STOPWORDS = new Set(('a,an,the,is,am,are,was,were,be,been,being,i,you,he,she,it,we,they,me,him,her,us,them,' +
   'my,your,his,its,our,their,mine,yours,hers,ours,theirs,this,that,these,those,and,or,but,so,if,then,than,' +
@@ -2726,8 +2756,34 @@ const SV_STOPWORDS = new Set(('a,an,the,is,am,are,was,were,be,been,being,i,you,h
   'down,out,off,over,under,again,further,here,there,when,where,why,how,all,any,both,each,few,more,most,' +
   'other,some,such,no,nor,not,only,own,same,too,very,can,will,just,don,should,now,do,does,did,doing,have,' +
   'has,had,having,what,which,who,whom,as,because,while,got,get,gonna,wanna,yeah,okay,ok,oh,uh,um,hey,well,' +
-  'like,really,know,going,think,want,could,would,might,must,shall,let,lets').split(','));
+  'like,really,know,going,think,want,could,would,might,must,shall,let,lets,see,say,said,says,tell,told,' +
+  'come,came,go,went,make,made,take,took,put,keep,kept,thing,things,something,someone,anything,everything,' +
+  'people,person,time,day,way,lot,bit,little,much,many,also,even,still,back,right,good,bad,new,old').split(','));
 let svCardsRendered = false;
+// 点掉不想要的词卡后记住，同一个文件下次打开不再冒出来——比硬算法猜"这个词是不是生词"更可靠
+function svCardIgnoreKey() { return 'shadow_card_ignore_' + fileKey(); }
+function svCardIgnored() { try { return new Set(JSON.parse(localStorage.getItem(svCardIgnoreKey()) || '[]')); } catch (e) { return new Set(); } }
+function svDismissCard(term, e) {
+  if (e) e.stopPropagation();
+  const s = svCardIgnored();
+  s.add(term);
+  try { localStorage.setItem(svCardIgnoreKey(), JSON.stringify([...s])); } catch (e2) {}
+  const card = document.querySelector(`.sv-word-card[data-term="${CSS.escape(term)}"]`);
+  if (card) card.remove();
+}
+// 词典里本来就收录了大量短语动词/习语（give up / break down / come across ...），
+// 滑动窗口扫一遍字幕文本，命中的多词条目直接当"词组卡"用，免费、不用接任何 API
+function extractPhraseCandidates(text) {
+  const tokens = (text || '').split(/[^A-Za-z']+/).filter(Boolean).map(t => t.toLowerCase());
+  const found = [];
+  for (let n = 4; n >= 2; n--) {
+    for (let i = 0; i + n <= tokens.length; i++) {
+      const phrase = tokens.slice(i, i + n).join(' ');
+      if (window.WN_DICT && window.WN_DICT[phrase]) found.push(phrase);
+    }
+  }
+  return found;
+}
 function renderSvCardsTab() {
   const list = document.getElementById('sv-cards-tab');
   if (subtitles.length === 0) {
@@ -2736,59 +2792,160 @@ function renderSvCardsTab() {
   }
   list.innerHTML = `<div class="sv-placeholder">📖 正在准备词卡…</div>`;
   ensureShadowDicts().then(() => {
-    // 按首次出现顺序收集生词（去重、过滤虚词/太短的词），保留首次出现时的句子索引方便跳转回原句
-    const seen = new Map();
+    const ignored = svCardIgnored();
+    // 按首次出现顺序收集生词（去重、过滤虚词/太短的词/已被手动点掉的），保留首次出现时的句子索引方便跳转回原句
+    const seen = new Map();   // term -> { idx, isPhrase }
     subtitles.forEach((s, idx) => {
+      extractPhraseCandidates(s.text).forEach(p => { if (!ignored.has(p) && !seen.has(p)) seen.set(p, { idx, isPhrase: true }); });
       (s.text || '').split(/[^A-Za-z']+/).forEach(raw => {
         const w = raw.toLowerCase().replace(/^'+|'+$/g, '');
-        if (w.length < 3 || SV_STOPWORDS.has(w) || seen.has(w)) return;
-        seen.set(w, idx);
+        if (w.length < 3 || SV_STOPWORDS.has(w) || ignored.has(w) || seen.has(w)) return;
+        seen.set(w, { idx, isPhrase: false });
       });
     });
-    const words = [...seen.keys()];
-    if (words.length === 0) {
+    const terms = [...seen.keys()];
+    if (terms.length === 0) {
       list.innerHTML = `<div class="sv-placeholder">这段内容里没有抽出符合条件的生词</div>`;
       svCardsRendered = true;
       return;
     }
-    list.innerHTML = '';
-    words.forEach(w => {
-      const idx = seen.get(w);
-      const key = (window.WN_DICT && window.WN_DICT[w]) ? w : dpLemma(w);
-      const entry = key && window.WN_DICT ? window.WN_DICT[key] : null;
-      const ipa = window.IPA_DICT ? (window.IPA_DICT[key || w] || window.IPA_DICT[w] || '') : '';
-      const div = document.createElement('div');
-      div.className = 'sv-card sv-word-card';
-      div.innerHTML = `
-        <div class="sv-card-top">
-          <span class="sv-word">${escHtml(w)}</span>${ipa ? `<span class="sv-ipa">/${escHtml(ipa)}/</span>` : ''}
-          <button class="btn" style="padding:2px 8px;font-size:12px;margin-left:auto;" onclick="speakWord('${escHtml(w)}')">🔊</button>
-        </div>
-        ${entry ? entry.slice(0, 2).map(sense =>
-          `<div class="sv-def"><span class="dp-pos">${escHtml(sense[0])}</span> ${escHtml(sense[1])}</div>`).join('')
-          : `<div class="sv-def" style="color:var(--text-muted);">离线词典未收录</div>`}
-        <button class="btn" style="padding:3px 10px;font-size:12px;margin-top:8px;" onclick="switchSimpleTab('sub');playSentence(${idx})">↩ 跳到原句</button>
-      `;
-      list.appendChild(div);
-    });
+    list.innerHTML = `<div style="text-align:right;margin-bottom:6px;">
+      <button class="btn" id="sv-idiom-btn" style="padding:3px 10px;font-size:12px;" onclick="svExtractIdiomsWithAI()">✨ AI 补充地道表达</button>
+    </div>`;
+    terms.forEach(term => list.appendChild(buildSvWordCard(term, seen.get(term))));
     svCardsRendered = true;
   });
+}
+function buildSvWordCard(term, meta) {
+  const { idx, isPhrase } = meta;
+  const key = (window.WN_DICT && window.WN_DICT[term]) ? term : (isPhrase ? null : dpLemma(term));
+  const entry = key && window.WN_DICT ? window.WN_DICT[key] : null;
+  const ipa = !isPhrase && window.IPA_DICT ? (window.IPA_DICT[key || term] || window.IPA_DICT[term] || '') : '';
+  const div = document.createElement('div');
+  div.className = 'sv-card sv-word-card';
+  div.dataset.term = term;
+  div.innerHTML = `
+    <div class="sv-card-top">
+      ${isPhrase ? '<span class="sv-phrase-badge">词组</span>' : ''}
+      <span class="sv-word">${escHtml(term)}</span>${ipa ? `<span class="sv-ipa">/${escHtml(ipa)}/</span>` : ''}
+      <button class="btn" style="padding:2px 8px;font-size:12px;margin-left:auto;" onclick="speakWord('${escHtml(term)}')">🔊</button>
+      <button class="btn" style="padding:2px 7px;font-size:12px;" title="不想要这张卡，以后也不再出现" onclick="svDismissCard('${escHtml(term)}', event)">✕</button>
+    </div>
+    ${entry ? entry.slice(0, 2).map(sense =>
+      `<div class="sv-def"><span class="dp-pos">${escHtml(sense[0])}</span> ${escHtml(sense[1])}</div>`).join('')
+      : `<div class="sv-def" style="color:var(--text-muted);">离线词典未收录</div>`}
+    <button class="btn" style="padding:3px 10px;font-size:12px;margin-top:8px;" onclick="switchSimpleTab('sub');playSentence(${idx})">↩ 跳到原句</button>
+  `;
+  return div;
+}
+// 可选增强：词典没收录的更口语化表达/俚语，用 DeepSeek 补一批——按文件缓存，不会重复烧 Key 额度
+async function svExtractIdiomsWithAI() {
+  const key = getDeepSeekKey();
+  if (!key) { showToast('请先在右上角「API 设置」填写 DeepSeek API Key'); return; }
+  const btn = document.getElementById('sv-idiom-btn');
+  const cacheKey = 'shadow_idioms_' + fileKey();
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(cacheKey) || 'null'); } catch (e) {}
+  if (cached) { cached.forEach(it => appendIdiomCard(it)); btn.remove(); return; }
+  btn.disabled = true;
+  btn.textContent = '⏳ AI 识别中…';
+  try {
+    const found = await extractIdioms(subtitles.map(s => s.text), key, getDeepSeekUrl());
+    try { localStorage.setItem(cacheKey, JSON.stringify(found)); } catch (e) {}
+    if (found.length === 0) showToast('没有识别到额外的地道表达');
+    found.forEach(it => appendIdiomCard(it));
+    btn.remove();
+  } catch (e) {
+    showToast('识别失败：' + e.message, 4000);
+    btn.disabled = false;
+    btn.textContent = '✨ AI 补充地道表达';
+  }
+}
+function appendIdiomCard(it) {
+  const ignored = svCardIgnored();
+  if (ignored.has(it.phrase)) return;
+  const list = document.getElementById('sv-cards-tab');
+  const div = document.createElement('div');
+  div.className = 'sv-card sv-word-card';
+  div.dataset.term = it.phrase;
+  div.innerHTML = `
+    <div class="sv-card-top">
+      <span class="sv-phrase-badge">词组</span>
+      <span class="sv-word">${escHtml(it.phrase)}</span>
+      <button class="btn" style="padding:2px 8px;font-size:12px;margin-left:auto;" onclick="speakWord('${escHtml(it.phrase)}')">🔊</button>
+      <button class="btn" style="padding:2px 7px;font-size:12px;" title="不想要这张卡，以后也不再出现" onclick="svDismissCard('${escHtml(it.phrase)}', event)">✕</button>
+    </div>
+    <div class="sv-def">${escHtml(it.meaning || '')}</div>
+    ${it.idx != null ? `<button class="btn" style="padding:3px 10px;font-size:12px;margin-top:8px;" onclick="switchSimpleTab('sub');playSentence(${it.idx})">↩ 跳到原句</button>` : ''}
+  `;
+  list.appendChild(div);
+}
+// 跟 translateTexts() 是同一套分批编号 prompt + 解析回填的模式，只是换了任务
+async function extractIdioms(texts, apiKey, baseUrl) {
+  const out = [];
+  const BATCH = 30;
+  for (let offset = 0; offset < texts.length; offset += BATCH) {
+    const batch = texts.slice(offset, offset + BATCH);
+    const numbered = batch.map((t, i) => `${i + 1}. ${t}`).join('\n');
+    const prompt = `以下是一段英文口语内容的逐句文本，挑出其中真正地道的表达/俚语/习语（不要挑普通词汇，找不到就跳过那一句），` +
+      `每条一行，格式为"句号-表达-中文简释"，比如"3-piece of cake-小菜一碟"：\n${numbered}`;
+    const resp = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+      body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'user', content: prompt }], temperature: 0.3 }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    content.split('\n').forEach(line => {
+      const m = line.match(/^(\d+)\s*-\s*([^-]+)-\s*(.+)$/);
+      if (!m) return;
+      const localIdx = parseInt(m[1], 10) - 1;
+      const globalIdx = offset + localIdx;
+      if (globalIdx < 0 || globalIdx >= texts.length) return;
+      out.push({ phrase: m[2].trim().toLowerCase(), meaning: m[3].trim(), idx: globalIdx });
+    });
+  }
+  return out;
 }
 
 /* ── 简洁模式：听写（零 API 成本——播放一句、隐藏文字、用户凭听力打字，
      跟原句用 normWords/alignWords 逐词对比打分，这套比对逻辑本来就是给跟读录音评分用的，
      文字对文字直接复用，不用再接语音识别） ── */
-let svDictIdx = 0;
+let svDictIdx = 0;         // 索引指向的是下面 svDictScope() 返回的"当前范围列表"里的位置，不是直接指 subtitles 下标
+let svDictOnlyFav = false;
+// 听写范围：全部句子，或者只在收藏过的句子里听写——复用现成的 favs Set，不新增存储
+function svDictScope() {
+  if (!svDictOnlyFav) return subtitles.map((_, i) => i);
+  return [...favs].sort((a, b) => a - b);
+}
+function svDictSetScope(onlyFav) {
+  if (onlyFav && favs.size === 0) { showToast('还没有收藏。先在「字幕」标签页点 ☆ 收藏几句'); return; }
+  svDictOnlyFav = onlyFav;
+  svDictIdx = 0;
+  renderSvDictationTab();
+}
 function renderSvDictationTab() {
   const box = document.getElementById('sv-dictation-tab');
   if (subtitles.length === 0) {
     box.innerHTML = `<div class="sv-placeholder">还没有字幕，先转写或导入后再来听写</div>`;
     return;
   }
-  if (svDictIdx >= subtitles.length) svDictIdx = 0;
-  const s = subtitles[svDictIdx];
-  box.innerHTML = `
-    <div class="sv-dict-head">第 ${svDictIdx + 1} / ${subtitles.length} 句</div>
+  const scope = svDictScope();
+  const scopeSwitcher = `
+    <div class="sv-dict-scope">
+      <button class="btn ${!svDictOnlyFav ? 'active' : ''}" onclick="svDictSetScope(false)">全部句子</button>
+      <button class="btn ${svDictOnlyFav ? 'active' : ''}" onclick="svDictSetScope(true)">⭐ 只看收藏${favs.size ? '(' + favs.size + ')' : ''}</button>
+    </div>`;
+  if (scope.length === 0) {
+    box.innerHTML = scopeSwitcher + `<div class="sv-placeholder">还没有收藏任何句子</div>`;
+    return;
+  }
+  if (svDictIdx >= scope.length) svDictIdx = 0;
+  const realIdx = scope[svDictIdx];
+  const s = subtitles[realIdx];
+  box.innerHTML = scopeSwitcher + `
+    <div class="sv-dict-head">第 ${svDictIdx + 1} / ${scope.length} 句${svDictOnlyFav ? '（收藏范围）' : ''}</div>
     <button class="btn active" style="width:100%;padding:12px;font-size:15px;" onclick="svDictPlay()">▶ 播放这句</button>
     <textarea id="sv-dict-input" placeholder="凭听力打出这句话…" style="width:100%;min-height:70px;margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:15px;box-sizing:border-box;"></textarea>
     <div style="display:flex;gap:8px;margin-top:8px;">
@@ -2800,14 +2957,16 @@ function renderSvDictationTab() {
   svDictPlay();
 }
 function svDictPlay() {
-  const s = subtitles[svDictIdx];
+  const scope = svDictScope();
+  const s = subtitles[scope[svDictIdx]];
   if (!s || !ws) return;
   seekSec(s.start);
   abState = { end: s.end, cb: null };
   safePlay();
 }
 function svDictCheck() {
-  const s = subtitles[svDictIdx];
+  const scope = svDictScope();
+  const s = subtitles[scope[svDictIdx]];
   const input = document.getElementById('sv-dict-input');
   const refWords = normWords(s.text);
   const hypWords = normWords(input.value);
@@ -4905,6 +5064,8 @@ async function resetAll() {
   stopAllPlayback();
   if (ws) { ws.destroy(); ws = null; }
   subtitles = [];
+  svCardsRendered = false;   // 换文件时字幕是直接清空的，没走 renderSubtitleList()，
+  svDictIdx = 0;             // 这两个状态不在这里顺手清掉的话，词卡/听写标签页会残留上一个文件的内容
   currentRegion = null;
   isLooping = false;
   sentencePause = false;
