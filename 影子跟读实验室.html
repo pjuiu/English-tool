@@ -306,6 +306,32 @@
   .sub-text { flex: 1; font-size: 13px; line-height: 1.5; }
   .sub-text .zh { font-size: 12px; color: var(--text-muted); }
 
+  /* ── 简洁模式：沉浸式跟读视图（新增标签页 + 卡片化字幕列表，跟旧的工具箱式布局共存，
+       靠 body.simple-mode 这个类切换，播放器/播放控制条两种模式共用不重复） ── */
+  #simple-view { display: none; }
+  body.simple-mode #simple-view { display: block; }
+  body.simple-mode #main-right,
+  body.simple-mode #subtitle-list-wrap,
+  body.simple-mode #diag-panel,
+  body.simple-mode #url-video-toggle { display: none !important; }
+  #sv-tabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .sv-tab {
+    flex: 1; padding: 10px 4px; text-align: center; font-size: 14px; color: var(--text-muted);
+    background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer;
+  }
+  .sv-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .sv-tab-content { max-height: 60vh; overflow-y: auto; }
+  .sv-placeholder { text-align: center; padding: 40px 10px; color: var(--text-muted); font-size: 13px; }
+  .sv-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 10px; display: block;
+  }
+  .sv-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .sv-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .sv-card .sub-text { font-size: 16px; line-height: 1.6; }
+  .sv-card .zh { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+  #main-left #sv-sub-tab { max-height: 62vh; }
+
   /* ── Saved Segments ── */
   #saved-wrap {
     background: var(--surface);
@@ -667,9 +693,10 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260710c</span>
+    <span>Shadow Reading Lab · v20260710d</span>
   </div>
   <div class="header-right">
+    <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
     <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
     <button class="btn-sm" onclick="document.getElementById('restore-input').click()">📥 恢复</button>
     <input type="file" id="restore-input" accept=".json" style="display:none" onchange="restoreShadowData(event)" />
@@ -830,6 +857,24 @@
       </div>
     </div>
     <div id="shortcut-hint">快捷键：空格 播放/暂停 · ← → ±5 秒 · R 重播本句 · P/N 上一句/下一句 · M 录音 ｜ 跟读练习中：空格 听原句 · R 录音 · C 对比 · N/P 切句 · Esc 退出</div>
+  </div>
+
+  <!-- 简洁模式：视频/播放控制沿用上面共用的那一套，这里只是替换掉下方的字幕列表+侧栏工具面板 -->
+  <div id="simple-view">
+    <div id="sv-tabs">
+      <button class="sv-tab active" data-tab="sub" onclick="switchSimpleTab('sub')">字幕</button>
+      <button class="sv-tab" data-tab="practice" onclick="switchSimpleTab('practice')">跟读</button>
+      <button class="sv-tab" data-tab="cards" onclick="switchSimpleTab('cards')">词卡</button>
+      <button class="sv-tab" data-tab="dictation" onclick="switchSimpleTab('dictation')">听写</button>
+    </div>
+    <div id="sv-sub-tab" class="sv-tab-content"><div id="sv-sub-list"></div></div>
+    <div id="sv-practice-tab" class="sv-tab-content" style="display:none;"></div>
+    <div id="sv-cards-tab" class="sv-tab-content" style="display:none;">
+      <div class="sv-placeholder">🚧 词卡功能即将推出</div>
+    </div>
+    <div id="sv-dictation-tab" class="sv-tab-content" style="display:none;">
+      <div class="sv-placeholder">🚧 听写功能即将推出</div>
+    </div>
   </div>
 
   <!-- Subtitle List（主操作区：视频正下方，全宽） -->
@@ -1071,7 +1116,7 @@ function findSubIdxAt(t) {
   const ans = lastIdxWithStartLE(t);
   return (ans >= 0 && t <= subtitles[ans].end + SUB_END_GRACE) ? ans : -1;
 }
-let activeRowEl = null;   // 当前高亮行（避免每次全列表遍历）
+let activeRowEls = [];   // 当前高亮行（避免每次全列表遍历）——数组是因为简洁模式和旧列表会同时存在两份 .sub-item
 
 /* 词级时间：没有精确数据时按音节数估算（比字符长度准——
    through 是1音节但7个字母，idea 是3音节只有4个字母） */
@@ -2468,24 +2513,28 @@ function updateCurrentSubtitle(t) {
         (subMode === 'bilingual' && seg.zh ? `<div class="cap-zh"><span>${escHtml(seg.zh)}</span></div>` : '');
       lastActiveSub = seg;
       kwPrevIdx = -1;
-      const wrap = document.getElementById('subtitle-list-wrap');
-      // 局部行高亮：直接定位新旧两行，不再遍历整个列表
-      if (activeRowEl) activeRowEl.classList.remove('active');
-      const activeRow = document.querySelector(`.sub-item[data-si="${segIdx}"]`);
-      activeRowEl = activeRow;
-      if (activeRow) {
+      // 局部行高亮：直接定位新旧两行，不再遍历整个列表。
+      // 旧的字幕列表和简洁模式下的字幕卡片是两份并存的 DOM（都用 .sub-item + data-si 标记），
+      // 用 querySelectorAll 一次性把两边都同步高亮，不用维护两套逻辑
+      activeRowEls.forEach(el => el.classList.remove('active'));
+      const activeRows = [...document.querySelectorAll(`.sub-item[data-si="${segIdx}"]`)];
+      activeRowEls = activeRows;
+      activeRows.forEach(activeRow => {
         activeRow.classList.add('active');
-        // 让当前句始终在列表可视区内
-        const top = activeRow.offsetTop;
-        if (top < wrap.scrollTop + 20 || top > wrap.scrollTop + wrap.clientHeight - 50) {
-          wrap.scrollTop = top - wrap.clientHeight / 2;
+        // 让当前句始终在所在列表可视区内（旧列表和简洁模式列表各自的滚动容器）
+        const wrap = activeRow.closest('#subtitle-list-wrap, #sv-sub-tab');
+        if (wrap) {
+          const top = activeRow.offsetTop;
+          if (top < wrap.scrollTop + 20 || top > wrap.scrollTop + wrap.clientHeight - 50) {
+            wrap.scrollTop = top - wrap.clientHeight / 2;
+          }
         }
-      }
-      // 缓存当前句的词元素（字幕栏 / 视频字幕 / 列表行），供卡拉OK逐帧点亮
+      });
+      // 缓存当前句的词元素（字幕栏 / 视频字幕 / 列表行×N），供卡拉OK逐帧点亮
       kwSets = [
         [...enEl.querySelectorAll('.kw')],
         [...cap.querySelectorAll('.kw')],
-        activeRow ? [...activeRow.querySelectorAll('.kw')] : null,
+        ...activeRows.map(r => [...r.querySelectorAll('.kw')]),
       ];
     }
   } else {
@@ -2496,7 +2545,8 @@ function updateCurrentSubtitle(t) {
       kwSets = [];
       kwPrevIdx = -1;
       document.getElementById('video-caption').innerHTML = '';
-      if (activeRowEl) { activeRowEl.classList.remove('active'); activeRowEl = null; }
+      activeRowEls.forEach(el => el.classList.remove('active'));
+      activeRowEls = [];
     }
   }
 }
@@ -2550,9 +2600,10 @@ function renderSubtitleList() {
   // 重建列表前先把内嵌的练习面板搬回原位，避免被 innerHTML 销毁
   const ppanel = document.getElementById('practice-panel');
   if (ppanel && list.contains(ppanel)) document.getElementById('practice-home').appendChild(ppanel);
-  activeRowEl = null;      // 行元素即将重建，旧引用作废
+  activeRowEls = [];      // 行元素即将重建，旧引用作废
   lastActiveSub = null;    // 强制下一次 timeupdate 重新挂载高亮与卡拉OK
   if (subtitles.length === 0) {
+    renderSvSubList();
     if (!currentFile) { wrap.style.display = 'none'; return; }
     // 空状态引导：文件已加载但还没字幕
     wrap.style.display = 'block';
@@ -2604,6 +2655,65 @@ function renderSubtitleList() {
     localStorage.setItem('shadow_hint_words', '1');
     showToast('💡 点句子 = 跳转播放 ｜ 点单词 = 查词释义 ｜ ☆ = 收藏 ｜ 🎤 = 逐句跟读', 8000);
   }
+  renderSvSubList();
+}
+
+/* ── 简洁模式：字幕卡片列表（跟旧列表共用同一份 subtitles 数据和高亮同步逻辑，
+     只是渲染成更干净的卡片，去掉序号/更多操作这些工具向的元素） ── */
+function renderSvSubList() {
+  const list = document.getElementById('sv-sub-list');
+  if (!list) return;
+  if (subtitles.length === 0) {
+    list.innerHTML = `<div class="sv-placeholder">还没有字幕，先在「字幕生成」里转写或导入</div>`;
+    return;
+  }
+  list.innerHTML = '';
+  subtitles.forEach((s, i) => {
+    if (favOnly && !favs.has(i)) return;
+    const div = document.createElement('div');
+    div.className = 'sub-item sv-card';
+    div.dataset.si = i;
+    div.innerHTML = `
+      <div class="sv-card-top">
+        <span class="sub-time">${fmtTime(s.start)}</span>
+        <button class="fav-btn ${favs.has(i) ? 'faved' : ''}" onclick="toggleFav(${i},event)" title="收藏这句">${favs.has(i) ? '⭐' : '☆'}</button>
+      </div>
+      <div class="sub-text">${wordSpansHtml(s.text)}</div>
+      ${s.zh ? `<div class="zh">${escHtml(s.zh)}</div>` : ''}
+    `;
+    div.addEventListener('click', (e) => {
+      if (e.target.tagName === 'BUTTON') return;
+      if (e.target.classList.contains('kw')) return;
+      playSentence(i);
+    });
+    list.appendChild(div);
+  });
+}
+
+function toggleSimpleMode() {
+  const on = !document.body.classList.contains('simple-mode');
+  document.body.classList.toggle('simple-mode', on);
+  localStorage.setItem('shadow_simple_mode', on ? '1' : '');
+  document.getElementById('simple-mode-toggle').textContent = on ? '🖥 完整模式' : '📱 简洁模式';
+  if (on) {
+    activeRowEls = [];   // 切换模式后旧的高亮行引用可能已经不在可视列表里，强制下一帧重新定位
+    lastActiveSub = null;
+    placePracticePanel();   // 若正在跟读，把面板挪进简洁模式的"跟读"标签页
+  } else {
+    activeRowEls = [];
+    lastActiveSub = null;
+    placePracticePanel();   // 挪回旧列表内嵌位置
+  }
+}
+
+function switchSimpleTab(tab) {
+  document.querySelectorAll('.sv-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.sv-tab-content').forEach(c => c.style.display = 'none');
+  document.getElementById('sv-' + tab + '-tab').style.display = 'block';
+  if (tab === 'practice') {
+    if (!practice) enterPracticeHere();   // 第一次点进"跟读"标签页，还没有练习会话就直接开始
+    else placePracticePanel();
+  }
 }
 
 /* ── 收藏句子 ── */
@@ -2619,19 +2729,19 @@ function toggleFav(i, e) {
   if (e) e.stopPropagation();
   if (favs.has(i)) favs.delete(i); else favs.add(i);
   saveFavs();
-  // 局部更新该行，避免全列表重建
-  const row = document.querySelector(`.sub-item[data-si="${i}"]`);
-  if (row) {
+  // 局部更新该行，避免全列表重建——旧列表和简洁模式卡片可能同时存在，两边都要同步
+  document.querySelectorAll(`.sub-item[data-si="${i}"]`).forEach(row => {
     const b = row.querySelector('.fav-btn');
     if (b) { b.classList.toggle('faved', favs.has(i)); b.textContent = favs.has(i) ? '⭐' : '☆'; }
     if (favOnly && !favs.has(i)) row.remove();
-  }
+  });
   updateFavBtn();
 }
 
 /* 局部更新某行的练习次数徽标 */
 function bumpRowBadge(i) {
-  const row = document.querySelector(`.sub-item[data-si="${i}"]`);
+  // 练习次数徽标只在旧列表里有对应的 DOM 结构，简洁模式卡片没有这个元素，容器限定一下避免选错
+  const row = document.querySelector(`#subtitle-list .sub-item[data-si="${i}"]`);
   if (!row) return;
   row.classList.add('practiced');
   const n = getPracticeCounts()[i] || 0;
@@ -2670,7 +2780,8 @@ function exportFavs() {
 
 function editSubtitle(i, e) {
   e.stopPropagation();
-  const row = document.querySelector(`.sub-item[data-si="${i}"]`);
+  // 编辑功能的入口只在旧列表里，容器限定一下避免选到简洁模式那份卡片（哪怕它当前隐藏着）
+  const row = document.querySelector(`#subtitle-list .sub-item[data-si="${i}"]`);
   const s = subtitles[i];
   if (!row || !s || row.classList.contains('editing')) return;
   row.classList.add('editing');
@@ -3273,8 +3384,16 @@ function renderPracticeStats() {
 function placePracticePanel() {
   const panel = document.getElementById('practice-panel');
   const home = document.getElementById('practice-home');
+  if (document.body.classList.contains('simple-mode')) {
+    // 简洁模式下跟读面板固定显示在"跟读"标签页容器里，不跟着字幕行内嵌
+    // （内嵌逻辑是给旧的工具箱式字幕列表设计的，简洁模式是独立的标签页布局）
+    document.getElementById('sv-practice-tab').appendChild(panel);
+    return;
+  }
   if (practice && practice.idx >= 0) {
-    const row = document.querySelector(`.sub-item[data-si="${practice.idx}"]`);
+    // 限定在旧列表容器内查找——简洁模式的卡片列表也用同一个 .sub-item class，
+    // 不加这个限定，全局 querySelector 可能会选中简洁模式那份（哪怕它当前是隐藏的）
+    const row = document.querySelector(`#subtitle-list .sub-item[data-si="${practice.idx}"]`);
     if (row) {
       row.insertAdjacentElement('afterend', panel);
       panel.classList.add('inline');
@@ -4710,6 +4829,10 @@ function escHtml(s) {
 //  INIT
 // ═══════════════════════════════════════════════════════
 loadApiKeys();
+if (localStorage.getItem('shadow_simple_mode') === '1') {
+  document.body.classList.add('simple-mode');
+  document.getElementById('simple-mode-toggle').textContent = '🖥 完整模式';
+}
 document.getElementById('karaoke-btn').classList.toggle('active', karaokeEnabled);   // 按钮与记忆状态同步
 document.getElementById('whisper-model-sel').value = currentWhisperModel();
 document.getElementById('auto-transcribe-chk').checked = localStorage.getItem('shadow_auto_transcribe') === '1';
