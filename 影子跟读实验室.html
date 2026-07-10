@@ -346,9 +346,10 @@
   .sv-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
   .sv-card .sub-text { font-size: 16px; line-height: 1.6; }
   .sv-card .zh { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
-  /* 长句子（很多词）默认折叠到 4 行，避免一张卡片占满整个屏幕；JS 只在真的溢出时才加这个类和"展开"按钮 */
-  .sv-card .sub-text.sv-clamped {
-    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  /* 通用的长文本折叠类——简洁模式里所有可能出现长句子的地方都用这一份（applySvTextClamp() 统一调用），
+     具体折叠到几行由 JS 动态设置 -webkit-line-clamp，只在真的溢出时才加这个类和"展开"按钮 */
+  .sv-clamped {
+    display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden;
   }
   .sv-expand-btn { font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; padding: 4px 0 0; }
   #main-left #sv-sub-tab { max-height: 62vh; }
@@ -359,6 +360,20 @@
     font-size: 10px; color: var(--accent2); border: 1px solid var(--accent2);
     border-radius: 4px; padding: 1px 5px; font-weight: 600;
   }
+  .sv-level-badge {
+    font-size: 10px; border-radius: 4px; padding: 1px 5px; font-weight: 700; color: #fff;
+  }
+  .sv-level-badge.lv-B1 { background: #6a9e7e; }
+  .sv-level-badge.lv-B2 { background: #6a8e9e; }
+  .sv-level-badge.lv-C1 { background: #c9924f; }
+  .sv-level-badge.lv-C2 { background: #b8756a; }
+  .sv-level-filter { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .sv-level-chip {
+    font-size: 12px; padding: 4px 12px; border-radius: 14px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-muted); cursor: pointer;
+  }
+  .sv-level-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .sv-level-hint { font-size: 11px; color: var(--text-muted); margin-left: auto; }
   .sv-dict-scope { display: flex; gap: 6px; margin-bottom: 10px; }
   .sv-dict-scope .btn { flex: 1; padding: 5px 8px; font-size: 12px; }
   .sv-dict-head { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
@@ -497,12 +512,12 @@
   }
   #video-caption .kw { pointer-events: auto; }   /* 单词本身可点击查义，与字幕列表行为一致 */
   #video-caption .cap-en {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;   /* 长字幕不限行数换行的话，简洁模式下视频压得很矮（220px），字幕换行一多就把整个画面盖住了；
-                                最多显示2行，超出截断——完整文字本来就能在"字幕"标签页/下方大字幕区看到，画面内嵌这份只是辅助 */
+    display: block;
+    max-height: 3.1em;   /* 固定 2 行高度——简洁模式下视频压得很矮（220px），字幕不限高的话换行一多会把整个画面盖住。
+                            用固定高度 + overflow:hidden 而不是 -webkit-line-clamp，是因为 line-clamp 是从头静态裁切的，
+                            长句子播到后半段时，正在读的那个词早被裁掉了，卡拉OK高亮跟播放进度对不上——
+                            改成 JS（updateKaraoke）随播放进度动态调整 scrollTop，让当前词始终保持在这 2 行可见范围内 */
     overflow: hidden;
-    text-overflow: ellipsis;
     background: rgba(0,0,0,0.65);
     color: #fff;
     font-size: 17px;
@@ -738,7 +753,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260710h</span>
+    <span>Shadow Reading Lab · v20260710i</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -1223,6 +1238,20 @@ function updateKaraoke(t) {
       el.classList.toggle('on', wi <= idx);   // 卡拉OK：已唱过的词全部点亮
     });
   });
+  // 画面内嵌字幕固定只显示 2 行高度，长句子播到后半段时，正在读的词早就超出这 2 行了——
+  // 让它跟着播放进度自动往下滚动，始终把当前词留在可见范围内，而不是从头静态截断看不到后面
+  const capEn = document.querySelector('#video-caption .cap-en');
+  if (capEn) {
+    const activeWord = capEn.querySelector(`.kw[data-wi="${idx}"]`);
+    if (activeWord) {
+      const wordBottom = activeWord.offsetTop + activeWord.offsetHeight;
+      if (wordBottom > capEn.scrollTop + capEn.clientHeight) {
+        capEn.scrollTop = wordBottom - capEn.clientHeight;
+      } else if (activeWord.offsetTop < capEn.scrollTop) {
+        capEn.scrollTop = activeWord.offsetTop;
+      }
+    }
+  }
   kwPrevIdx = idx;
 }
 function karaokeTick() {
@@ -2706,6 +2735,30 @@ function renderSubtitleList() {
   renderSvSubList();
 }
 
+// 简洁模式里凡是可能渲染出很长一句话的地方（字幕卡片/跟读面板/听写结果/词卡释义……）都调这一个函数，
+// 不再各处各写一遍折叠逻辑——之前字幕卡片、视频内嵌字幕分两轮各修一次，就是因为没有统一，
+// 新加的地方（跟读面板、听写结果）一直没人补，用户每次都要单独发现单独报
+function applySvTextClamp(el, maxLines) {
+  if (!el) return;
+  const old = el.nextElementSibling;
+  if (old && old.classList && old.classList.contains('sv-expand-btn')) old.remove();
+  el.style.webkitLineClamp = maxLines;
+  el.classList.add('sv-clamped');
+  if (el.scrollHeight > el.clientHeight + 2) {
+    const btn = document.createElement('button');
+    btn.className = 'sv-expand-btn';
+    btn.textContent = '展开 ▾';
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      el.classList.remove('sv-clamped');
+      btn.remove();
+    };
+    el.insertAdjacentElement('afterend', btn);
+  } else {
+    el.classList.remove('sv-clamped');
+  }
+}
+
 /* ── 简洁模式：字幕卡片列表（跟旧列表共用同一份 subtitles 数据和高亮同步逻辑，
      只是渲染成更干净的卡片，去掉序号/更多操作这些工具向的元素） ── */
 function renderSvSubList() {
@@ -2736,25 +2789,7 @@ function renderSvSubList() {
     });
     list.appendChild(div);
   });
-  // 长句子先折叠到 4 行，避免一张卡片占满整个可视区域——只在真的溢出时才加折叠+"展开"按钮，
-  // 短句子不会被误伤。直接同步测量（读 scrollHeight 本身就会强制浏览器同步排版，不需要等下一帧——
-  // 用 requestAnimationFrame 反而不可靠，标签页切到后台/不可见时会被无限期延后触发）
-  list.querySelectorAll('.sub-text').forEach(el => {
-    el.classList.add('sv-clamped');
-    if (el.scrollHeight > el.clientHeight + 2) {
-      const btn = document.createElement('button');
-      btn.className = 'sv-expand-btn';
-      btn.textContent = '展开 ▾';
-      btn.onclick = (e) => {
-        e.stopPropagation();
-        el.classList.remove('sv-clamped');
-        btn.remove();
-      };
-      el.insertAdjacentElement('afterend', btn);
-    } else {
-      el.classList.remove('sv-clamped');
-    }
-  });
+  list.querySelectorAll('.sub-text').forEach(el => applySvTextClamp(el, 4));
 }
 
 /* ── 简洁模式：词卡（零 API 成本——单词/词组表来自字幕文本本身，释义/音标来自已有的离线词典，
@@ -2768,6 +2803,29 @@ const SV_STOPWORDS = new Set(('a,an,the,is,am,are,was,were,be,been,being,i,you,h
   'like,really,know,going,think,want,could,would,might,must,shall,let,lets,see,say,said,says,tell,told,' +
   'come,came,go,went,make,made,take,took,put,keep,kept,thing,things,something,someone,anything,everything,' +
   'people,person,time,day,way,lot,bit,little,much,many,also,even,still,back,right,good,bad,new,old').split(','));
+// 纯免费的难度估算，不接 API——不是真正的 CEFR 标准，只能大致区分"基础常见"和"生僻少见"。
+// 逻辑：命中这份手动整理的基础常用词表 → B1；其余按词长 + 离线词典是否收录/收录几个义项做粗略分档
+const SV_BASIC_WORDS = new Set(('good,bad,big,small,long,short,high,low,new,old,young,happy,sad,easy,hard,fast,slow,hot,cold,' +
+  'warm,cool,nice,fine,great,wrong,right,true,false,free,busy,tired,hungry,thirsty,afraid,angry,sure,ready,' +
+  'man,woman,child,children,boy,girl,friend,family,mother,father,brother,sister,baby,student,teacher,doctor,' +
+  'house,home,room,door,window,table,chair,bed,kitchen,school,city,town,country,street,road,park,shop,store,' +
+  'water,food,milk,bread,rice,meat,fruit,egg,tea,coffee,breakfast,lunch,dinner,morning,evening,night,today,' +
+  'tomorrow,yesterday,week,month,year,hour,minute,second,money,job,work,school,book,phone,car,bus,train,plane,' +
+  'dog,cat,bird,animal,tree,flower,sun,moon,star,sky,rain,snow,wind,fire,music,movie,game,sport,color,red,' +
+  'blue,green,yellow,black,white,walk,run,eat,drink,sleep,talk,speak,listen,watch,read,write,play,work,help,' +
+  'love,like,hate,need,use,buy,sell,open,close,start,stop,finish,begin,end,live,die,born,grow,learn,teach,' +
+  'buy,pay,cost,cheap,expensive,big,small,fast,slow,early,late,near,far,left,right,up,down,inside,outside,' +
+  'happy,sad,fun,funny,boring,interesting,beautiful,ugly,clean,dirty,strong,weak,rich,poor,safe,dangerous').split(','));
+function estimateWordLevel(term, isPhrase) {
+  const key = window.WN_DICT && window.WN_DICT[term] ? term : dpLemma(term);
+  if (isPhrase) return key ? 'B2' : 'C1';   // 词组/习语默认比单词难一档
+  if (SV_BASIC_WORDS.has(term)) return 'B1';
+  const senseCount = key && window.WN_DICT ? (window.WN_DICT[key].length || 0) : 0;
+  if (!key) return 'C2';                       // 离线词典压根没收录，多半是专名/生僻词
+  if (term.length <= 6 && senseCount >= 2) return 'B2';   // 短、义项多 → 常用词
+  if (term.length <= 9) return 'C1';
+  return 'C2';                                 // 长词多是学术/正式用词，粗略归到最高档
+}
 let svCardsRendered = false;
 // 点掉不想要的词卡后记住，同一个文件下次打开不再冒出来——比硬算法猜"这个词是不是生词"更可靠
 function svCardIgnoreKey() { return 'shadow_card_ignore_' + fileKey(); }
@@ -2793,6 +2851,31 @@ function extractPhraseCandidates(text) {
   }
   return found;
 }
+// 等级筛选记忆——四档默认全选，跨会话记住上次的选择
+let svCardLevelFilter = null;
+function svLoadLevelFilter() {
+  if (svCardLevelFilter) return svCardLevelFilter;
+  try {
+    const saved = JSON.parse(localStorage.getItem('shadow_card_levels') || 'null');
+    svCardLevelFilter = new Set(saved || ['B1', 'B2', 'C1', 'C2']);
+  } catch (e) { svCardLevelFilter = new Set(['B1', 'B2', 'C1', 'C2']); }
+  return svCardLevelFilter;
+}
+function svToggleCardLevel(level) {
+  const f = svLoadLevelFilter();
+  if (f.has(level)) f.delete(level); else f.add(level);
+  if (f.size === 0) f.add(level);   // 不允许全部取消，至少留一档，不然列表直接清空看起来像坏了
+  try { localStorage.setItem('shadow_card_levels', JSON.stringify([...f])); } catch (e) {}
+  renderSvCardsTab();
+}
+function svLevelFilterHtml() {
+  const f = svLoadLevelFilter();
+  return `<div class="sv-level-filter">
+    ${['B1', 'B2', 'C1', 'C2'].map(lv =>
+      `<button class="sv-level-chip ${f.has(lv) ? 'active' : ''}" onclick="svToggleCardLevel('${lv}')">${lv}</button>`).join('')}
+    <span class="sv-level-hint" title="免费估算，不接 API，不是官方 CEFR 标准，只能大致参考">难度为估算 ⓘ</span>
+  </div>`;
+}
 function renderSvCardsTab() {
   const list = document.getElementById('sv-cards-tab');
   if (subtitles.length === 0) {
@@ -2812,21 +2895,25 @@ function renderSvCardsTab() {
         seen.set(w, { idx, isPhrase: false });
       });
     });
-    const terms = [...seen.keys()];
+    for (const [term, meta] of seen) meta.level = estimateWordLevel(term, meta.isPhrase);
+    const levelFilter = svLoadLevelFilter();
+    const terms = [...seen.keys()].filter(t => levelFilter.has(seen.get(t).level));
+    const filterHtml = svLevelFilterHtml();
     if (terms.length === 0) {
-      list.innerHTML = `<div class="sv-placeholder">这段内容里没有抽出符合条件的生词</div>`;
+      list.innerHTML = filterHtml + `<div class="sv-placeholder">这个难度范围内没有符合条件的生词</div>`;
       svCardsRendered = true;
       return;
     }
-    list.innerHTML = `<div style="text-align:right;margin-bottom:6px;">
+    list.innerHTML = filterHtml + `<div style="text-align:right;margin-bottom:6px;">
       <button class="btn" id="sv-idiom-btn" style="padding:3px 10px;font-size:12px;" onclick="svExtractIdiomsWithAI()">✨ AI 补充地道表达</button>
     </div>`;
     terms.forEach(term => list.appendChild(buildSvWordCard(term, seen.get(term))));
+    list.querySelectorAll('.sv-def').forEach(el => applySvTextClamp(el, 3));
     svCardsRendered = true;
   });
 }
 function buildSvWordCard(term, meta) {
-  const { idx, isPhrase } = meta;
+  const { idx, isPhrase, level } = meta;
   const key = (window.WN_DICT && window.WN_DICT[term]) ? term : (isPhrase ? null : dpLemma(term));
   const entry = key && window.WN_DICT ? window.WN_DICT[key] : null;
   const ipa = !isPhrase && window.IPA_DICT ? (window.IPA_DICT[key || term] || window.IPA_DICT[term] || '') : '';
@@ -2835,6 +2922,7 @@ function buildSvWordCard(term, meta) {
   div.dataset.term = term;
   div.innerHTML = `
     <div class="sv-card-top">
+      ${level ? `<span class="sv-level-badge lv-${level}">${level}</span>` : ''}
       ${isPhrase ? '<span class="sv-phrase-badge">词组</span>' : ''}
       <span class="sv-word">${escHtml(term)}</span>${ipa ? `<span class="sv-ipa">/${escHtml(ipa)}/</span>` : ''}
       <button class="btn" style="padding:2px 8px;font-size:12px;margin-left:auto;" onclick="speakWord('${escHtml(term)}')">🔊</button>
@@ -2888,6 +2976,7 @@ function appendIdiomCard(it) {
     ${it.idx != null ? `<button class="btn" style="padding:3px 10px;font-size:12px;margin-top:8px;" onclick="switchSimpleTab('sub');playSentence(${it.idx})">↩ 跳到原句</button>` : ''}
   `;
   list.appendChild(div);
+  applySvTextClamp(div.querySelector('.sv-def'), 3);
 }
 // 跟 translateTexts() 是同一套分批编号 prompt + 解析回填的模式，只是换了任务
 async function extractIdioms(texts, apiKey, baseUrl) {
@@ -2987,6 +3076,7 @@ function svDictCheck() {
     <div class="sv-dict-marked">${marked}</div>
     ${s.zh ? `<div class="zh" style="margin-top:6px;">${escHtml(s.zh)}</div>` : ''}
   `;
+  applySvTextClamp(document.querySelector('#sv-dict-result .sv-dict-marked'), 4);
 }
 function svDictNext() {
   svDictIdx++;
@@ -3006,6 +3096,9 @@ function toggleSimpleMode() {
     activeRowEls = [];
     lastActiveSub = null;
     placePracticePanel();   // 挪回旧列表内嵌位置
+    // 简洁模式里"跟读/听写"标签页会把画面字幕隐藏掉（避免跟标签页自己的文本区重复），
+    // 切回完整模式时要清掉这个残留的内联样式，不然完整模式下画面字幕会一直不显示
+    document.getElementById('video-caption').style.display = '';
   }
 }
 
@@ -3013,6 +3106,9 @@ function switchSimpleTab(tab) {
   document.querySelectorAll('.sv-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.sv-tab-content').forEach(c => c.style.display = 'none');
   document.getElementById('sv-' + tab + '-tab').style.display = 'block';
+  // 跟读/听写标签页自己有专门限高处理过的文本区域展示当前句——画面上再叠一份同样内容的字幕纯属冗余，
+  // 还平白多出一个要单独处理"长句子溢出"的地方。只在"字幕"标签页显示画面内嵌字幕
+  document.getElementById('video-caption').style.display = (tab === 'sub') ? '' : 'none';
   if (tab === 'practice') {
     if (!practice) enterPracticeHere();   // 第一次点进"跟读"标签页，还没有练习会话就直接开始
     else placePracticePanel();
@@ -3741,6 +3837,8 @@ function renderPractice() {
   document.getElementById('practice-title').textContent = `🎤 跟读练习 · ${practice.label}（${fmtTime(practice.start)} – ${fmtTime(practice.end)}）`;
   document.getElementById('practice-text').textContent = practice.text || '（无文本）';
   document.getElementById('practice-zh').textContent = practice.zh;
+  // 简洁模式下才限高——完整模式桌面空间够，不需要折叠
+  if (document.body.classList.contains('simple-mode')) applySvTextClamp(document.getElementById('practice-text'), 3);
   document.getElementById('pr-mine').disabled = !practice.recUrl;
   document.getElementById('pr-cmp').disabled = !practice.recUrl;
   document.getElementById('pr-score-btn').disabled = true;
@@ -4910,11 +5008,14 @@ async function exportCutFile(i) {
         await ff.writeFile('burn.srt', srt);
         diagLog(`已写入 burn.srt，${srt.length} 字符，前100字符预览: ${srt.slice(0,100).replace(/\n/g,'\\n')}`);
         subFilter = "subtitles=burn.srt:force_style='FontName=Arial,FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=1.5,MarginV=30'";
+      } else if (subtitles.length > 0) {
+        showToast('这个片段的时间范围没有命中任何字幕，不会烧录新字幕（遮罩原字幕仍会生效）', 5000);
       }
     }
-    // 原视频画面里可能已经烧了一份字幕（熟肉），跟新烧的字幕叠在一起会看不清——
-    // 在底部画一条黑条盖住原字幕的位置，再把新字幕叠在黑条上面。只在真的要烧新字幕时才有意义
-    const maskOrig = document.getElementById('cut-mask-orig-sub').checked && !!subFilter;
+    // 原视频画面里可能已经烧了一份字幕（熟肉）——遮住是独立的需求，不管这次有没有新字幕要叠加上去，
+    // 之前写死"只在真的要烧新字幕时才生效"是错的：这个片段没命中字幕时遮罩会跟着被跳过，
+    // 用户明明勾选了遮罩却完全没生效，看起来就像遮罩功能本身坏了
+    const maskOrig = document.getElementById('cut-mask-orig-sub').checked;
     const maskFilter = maskOrig ? 'drawbox=x=0:y=ih*0.85:w=iw:h=ih*0.15:color=black:t=fill' : '';
     const burnChain = [maskFilter, subFilter].filter(Boolean).join(',');
     // 烧字幕/遮罩必须重新编码（画面上的像素要改），没法再用无损快剪的 -c copy，导出会明显变慢
@@ -4970,8 +5071,9 @@ async function exportCutFile(i) {
     URL.revokeObjectURL(a.href);
     try { await ff.deleteFile(outName); } catch (e) {}
     try { if (subFilter) await ff.deleteFile('burn.srt'); } catch (e) {}
+    const doneExtras = [subFilter ? '已烧录字幕' : '', maskOrig ? '已遮罩原字幕' : ''].filter(Boolean).join('+');
     setCutStatus(needReencode
-      ? `✓ 已导出 ${c.label}${subFilter ? '（已烧录字幕' + (maskOrig ? '+遮罩原字幕' : '') + '）' : ''}`
+      ? `✓ 已导出 ${c.label}${doneExtras ? '（' + doneExtras + '）' : ''}`
       : `✓ 已导出 ${c.label}（无损快剪，起点对齐到最近关键帧）`);
   } catch (e) {
     setCutStatus('');
@@ -5033,6 +5135,11 @@ document.addEventListener('keydown', (e) => {
   const tag = (e.target.tagName || '').toLowerCase();
   if (tag === 'input' || tag === 'textarea' || e.ctrlKey || e.metaKey || e.altKey) return;
   if (!ws) return;
+  // 点过任何按钮（播放按钮本身、字幕卡片上的收藏按钮……）之后，焦点会停留在那个 button 上。
+  // 这时候按空格键，浏览器会同时做两件事：① 把这次按键当成"激活当前聚焦的按钮"，触发它的 click
+  // ② keydown 事件正常冒泡到这里，走 case 'Space' 再调一次 togglePlay()——一次点击的效果被
+  // 这两次调用相互抵消，表现出来就是"按空格没反应"。按键处理前先把焦点移开，避免这种重复触发
+  if (e.code === 'Space' && tag === 'button') e.target.blur();
   // 练习模式下快捷键全部围绕当前句
   if (practice) {
     switch (e.code) {
