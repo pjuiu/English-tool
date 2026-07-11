@@ -797,7 +797,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260711g</span>
+    <span>Shadow Reading Lab · v20260711h</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -5303,7 +5303,14 @@ async function exportCutFile(i) {
       : `✓ 已导出 ${c.label}（无损快剪，起点对齐到最近关键帧）`);
   } catch (e) {
     setCutStatus('');
-    showToast('导出失败：' + e.message + '。可改用 shadow_reader 完整版导出。', 4500);
+    // 有些异常不是标准 Error 对象——比如 ffmpeg 跑在 Web Worker 里，长时间/高强度重编码时
+    // 遇到浏览器内存不足，worker 可能被系统直接终止，通信用的 promise 会被 reject(undefined)
+    // 或者一个普通对象，而不是 new Error(...)。直接读 e.message 会是 undefined，
+    // toast 上显示"导出失败：undefined"毫无信息量，还会让人以为是这个提示逻辑本身坏了
+    const msg = (e && e.message) || (e ? String(e) : '') ||
+      '未知错误（没有具体错误信息，很可能是长时间重编码导致浏览器内存不足、处理进程被系统终止）';
+    diagLog(`导出异常：${msg}`);
+    showToast('导出失败：' + msg + '。可改用 shadow_reader 完整版导出。', 4500);
   }
 }
 
