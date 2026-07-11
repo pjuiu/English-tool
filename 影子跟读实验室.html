@@ -797,7 +797,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260711e</span>
+    <span>Shadow Reading Lab · v20260711f</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -1521,6 +1521,11 @@ async function waveformFallback(force) {
 // 很多播客托管商每次请求会动态插入不同广告，同一集的下载字节数会变，
 // 用文件大小当 key 会导致"同一个链接重新打开"匹配不到之前存的字幕/片段，看起来像被覆盖了
 function fileKey() { return (currentFile && currentFile._sourceKey) || (currentFileName + '_' + (currentFile ? currentFile.size : '')); }
+// ffmpeg 虚拟文件系统里缓存的文件字节用这个 key 判断要不要重新写入，跟上面 fileKey() 不是一回事——
+// fileKey() 为了"同一个播客链接每次广告不同也能续上字幕"故意不看文件大小；但这里恰恰相反：
+// 只要实际字节变了（哪怕 fileKey() 判断是"同一个文件"，比如重新下载后换了编码/画质），
+// 就必须重新写入，不然 ffmpeg 会拿旧文件的字节去处理，产出跟当前文件对不上的结果
+function ffFileKey() { return fileKey() + '_' + (currentFile ? currentFile.size : ''); }
 
 // ═══════════════════════════════════════════════════════
 //  INDEXEDDB (录音持久化)
@@ -2147,10 +2152,10 @@ async function extractAudioForAPI() {
   const ff = await ensureFFmpeg();
   const ext = ((currentFileName || 'x.mp4').match(/\.[^.]+$/) || ['.mp4'])[0].toLowerCase();
   const inName = 'input' + ext;
-  if (ffWrittenKey !== fileKey()) {
+  if (ffWrittenKey !== ffFileKey()) {
     setTranscribeStatus(`⏳ 载入文件到引擎（${formatSize(currentFile.size)}）…`);
     await ff.writeFile(inName, await FFmpegUtil.fetchFile(currentFile));
-    ffWrittenKey = fileKey();
+    ffWrittenKey = ffFileKey();
   }
   setTranscribeStatus('⏳ 压缩音轨中…');
   try {
@@ -2416,10 +2421,10 @@ function showConfirmBar(message, yesText, noText) {
 async function ensureFFmpegInputReady() {
   const ff = await ensureFFmpeg();
   const ext = ((currentFileName || 'x.mp4').match(/\.[^.]+$/) || ['.mp4'])[0].toLowerCase();
-  if (ffWrittenKey !== fileKey()) {
+  if (ffWrittenKey !== ffFileKey()) {
     setTranscribeStatus(`⏳ 载入文件到解码引擎（${formatSize(currentFile.size)}，首次需下载引擎约 31MB）…`);
     await ff.writeFile('input' + ext, await FFmpegUtil.fetchFile(currentFile));
-    ffWrittenKey = fileKey();
+    ffWrittenKey = ffFileKey();
   }
   return { ff, ext };
 }
@@ -5135,6 +5140,17 @@ async function clearCuts() {
   renderCutList();
 }
 
+// "遮住原字幕"这个勾选框之前完全不记状态，每次换文件/刷新页面都会回到默认不勾——
+// 用户反复反馈"导出没遮住"，追下去发现是这次忘了重新勾选（ffmpeg 命令里确实没有 drawbox 那段）。
+// 这是个明显要长期保持的偏好（不是"这一次要不要"的临时选择），跟 karaokeEnabled 一样用 localStorage 记住
+(() => {
+  const el = document.getElementById('cut-mask-orig-sub');
+  el.checked = localStorage.getItem('shadow_cut_mask_orig') === '1';
+  el.addEventListener('change', () => {
+    localStorage.setItem('shadow_cut_mask_orig', el.checked ? '1' : '');
+  });
+})();
+
 // ═══════════════════════════════════════════════════════
 //  FFMPEG.WASM 真剪切导出（浏览器内无损快剪，首次需下载 ~31MB 引擎）
 // ═══════════════════════════════════════════════════════
@@ -5191,10 +5207,10 @@ async function exportCutFile(i) {
     const ff = await ensureFFmpeg();
     const ext = (currentFileName.match(/\.[^.]+$/) || ['.mp4'])[0].toLowerCase();
     const inName = 'input' + ext;
-    if (ffWrittenKey !== fileKey()) {
+    if (ffWrittenKey !== ffFileKey()) {
       setCutStatus('⏳ 正在载入文件到剪辑引擎…');
       await ff.writeFile(inName, await FFmpegUtil.fetchFile(currentFile));
-      ffWrittenKey = fileKey();
+      ffWrittenKey = ffFileKey();
     }
     const vertical = document.getElementById('cut-vertical').checked && isVideoFile(currentFile);
 
