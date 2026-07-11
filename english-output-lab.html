@@ -16,14 +16,14 @@
   *{box-sizing:border-box;}
   body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:#f8fafc;color:#1e293b;}
   header{
-    position:sticky;top:0;z-index:50;min-height:52px;background:#fff;border-bottom:1px solid #e2e8f0;
+    min-height:52px;background:#fff;border-bottom:1px solid #e2e8f0;
     display:flex;align-items:center;justify-content:space-between;padding:8px 16px;gap:8px;flex-wrap:wrap;
   }
   header .logo{font-weight:700;font-size:17px;color:#1e293b;}
   header .logo small{font-weight:500;color:#94a3b8;font-size:12px;margin-left:6px;}
   header .apikey{display:flex;align-items:center;gap:6px;}
   header input[type=password]{border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;font-size:13px;width:200px;}
-  .tabs{display:flex;gap:20px;background:#fff;border-bottom:1px solid #e2e8f0;padding:0 16px;overflow-x:auto;}
+  .tabs{position:sticky;top:0;z-index:50;display:flex;gap:20px;background:#fff;border-bottom:1px solid #e2e8f0;padding:0 16px;overflow-x:auto;box-shadow:0 1px 3px rgba(0,0,0,.04);}
   .tab-btn{padding:12px 4px;border:none;background:none;font-size:14px;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;font-weight:500;white-space:nowrap;}
   .tab-btn.active{color:var(--blue-dark);border-bottom-color:var(--blue);font-weight:600;}
   .tab-btn:hover{color:var(--blue-dark);}
@@ -298,7 +298,7 @@ function lsUsage(){
   }
   return b;
 }
-const KEYS = { fav:'eol_favorites', hist:'eol_history', done:'eol_done_ids', aiq:'eol_ai_questions', review:'eol_review', lastgap:'eol_last_gap' };
+const KEYS = { fav:'eol_favorites', hist:'eol_history', done:'eol_done_ids', aiq:'eol_ai_questions', review:'eol_review', lastgap:'eol_last_gap', flash:'eol_flash_stats' };
 
 /* API key: 与 Word Lab 共享 */
 const apiKeyInput = $('#apiKeyInput');
@@ -613,42 +613,85 @@ window.showHistFb = (i, btn) => {
   }
 };
 $('#clearFavBtn').addEventListener('click', () => { if(confirm('确定清空全部收藏？')){ LS.set(KEYS.fav, []); renderFav(); } });
-/* ================= 闪卡复习 ================= */
-let flashDeck = [], flashIdx = 0, flashBack = false;
+/* ================= 闪卡复习（弱点优先 + 间隔） ================= */
+let flashDeck = [], flashIdx = 0, flashBack = false, flashMissed = [];
+const flashKey = f => String(f.expression).toLowerCase().trim();
+function shuffle(a){
+  for(let i = a.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+/* 选牌优先级：没复习过的 > 错误率高的 > 距上次复习久的；组内洗牌保证顺序每轮不同 */
+function buildFlashDeck(pool){
+  const st = LS.get(KEYS.flash, {});
+  const score = f => {
+    const s = st[flashKey(f)];
+    if(!s) return 100 + Math.random() * 10;
+    const missRate = s.miss / Math.max(s.seen, 1);
+    const days = (Date.now() - s.last) / 86400000;
+    return missRate * 50 + Math.min(days, 30) + Math.random() * 10;
+  };
+  const picked = pool.map(f => [score(f), f]).sort((a, b) => b[0] - a[0]).slice(0, 20).map(x => x[1]);
+  return shuffle(picked);
+}
+function flashMark(remembered){
+  const f = flashDeck[flashIdx];
+  const st = LS.get(KEYS.flash, {});
+  const k = flashKey(f);
+  const s = st[k] || {seen:0, miss:0, last:0};
+  s.seen++; if(!remembered){ s.miss++; flashMissed.push(f); }
+  s.last = Date.now();
+  st[k] = s;
+  LS.set(KEYS.flash, st);
+  flashIdx++; flashBack = false;
+  renderFlash();
+}
 function renderFlash(){
   const area = $('#flashArea');
   if(flashIdx >= flashDeck.length){
-    area.innerHTML = `<div class="q-box" style="text-align:center;">🎉 本轮 ${flashDeck.length} 张复习完毕！<div class="row" style="justify-content:center;margin-top:10px;"><button class="btn small" onclick="startFlash()">再来一轮</button><button class="btn small secondary" onclick="endFlash()">结束</button></div></div>`;
+    const missN = flashMissed.length, okN = flashDeck.length - missN;
+    area.innerHTML = `<div class="q-box" style="text-align:center;">🎉 本轮完毕：✅ 记得 ${okN} 张 · ❌ 没记住 ${missN} 张
+      <div class="row" style="justify-content:center;margin-top:10px;">
+        ${missN ? `<button class="btn small" onclick="startFlash(true)">只练没记住的（${missN}）</button>` : ''}
+        <button class="btn small ${missN ? 'secondary' : ''}" onclick="startFlash()">再来一轮</button>
+        <button class="btn small secondary" onclick="endFlash()">结束</button>
+      </div></div>`;
     return;
   }
   const f = flashDeck[flashIdx];
+  const st = LS.get(KEYS.flash, {});
+  const s = st[flashKey(f)];
+  const badge = !s ? '🆕 新卡' : (s.miss / Math.max(s.seen,1) >= 0.5 ? '🔥 老大难' : '');
   const front = f.meaning && f.meaning.length > 1 ? f.meaning : (f.example || '（无提示，直接回忆）');
   area.innerHTML = `
-    <div class="q-box" style="text-align:center;min-height:130px;background:${flashBack ? '#f0fdf4' : '#fdf4ff'};border-color:${flashBack ? '#bbf7d0' : '#f0abfc'};">
-      <div class="muted" style="font-size:12px;margin-bottom:8px;">${flashIdx + 1} / ${flashDeck.length} · ${esc(favCat(f))}${flashBack ? ' · 背面' : ' · 正面'}</div>
+    <div class="q-box" style="text-align:center;min-height:140px;background:${flashBack ? '#f0fdf4' : '#fdf4ff'};border-color:${flashBack ? '#bbf7d0' : '#f0abfc'};">
+      <div class="muted" style="font-size:12px;margin-bottom:8px;">${flashIdx + 1} / ${flashDeck.length} · ${esc(favCat(f))}${badge ? ' · ' + badge : ''}</div>
       ${flashBack
         ? `<div style="font-size:18px;font-weight:700;color:var(--blue-dark);">${esc(f.expression)}</div>${f.example ? `<div class="muted" style="font-style:italic;margin-top:6px;">${esc(f.example)}</div>` : ''}`
         : `<div style="font-size:16px;">${esc(front)}</div><div class="muted" style="font-size:12px;margin-top:8px;">先开口说出英文表达，再翻面对照</div>`}
       <div class="row" style="justify-content:center;margin-top:12px;">
         ${flashBack
-          ? `<button class="btn small" onclick="nextFlash()">下一张 →</button>`
+          ? `<button class="btn small" onclick="flashMark(true)">✅ 记得</button><button class="btn small danger" onclick="flashMark(false)">❌ 没记住</button>`
           : `<button class="btn small" onclick="flipFlash()">🔄 翻面</button>`}
         <button class="btn small secondary" onclick="endFlash()">结束</button>
       </div>
     </div>`;
 }
-window.startFlash = () => {
+window.startFlash = (onlyMissed) => {
   const fav = LS.get(KEYS.fav, []);
   if(!fav.length){ alert('收藏夹是空的，先练几题积累一些表达吧'); return; }
-  flashDeck = fav.slice().sort(() => Math.random() - 0.5).slice(0, 20);
-  flashIdx = 0; flashBack = false;
+  const pool = onlyMissed === true && flashMissed.length ? flashMissed.slice() : fav;
+  flashDeck = onlyMissed === true ? shuffle(pool) : buildFlashDeck(pool);
+  flashIdx = 0; flashBack = false; flashMissed = [];
   $('#flashArea').style.display = 'block';
   renderFlash();
 };
+window.flashMark = flashMark;
 window.flipFlash = () => { flashBack = true; renderFlash(); };
-window.nextFlash = () => { flashIdx++; flashBack = false; renderFlash(); };
 window.endFlash = () => { $('#flashArea').style.display = 'none'; };
-$('#flashBtn').addEventListener('click', startFlash);
+$('#flashBtn').addEventListener('click', () => startFlash());
 
 $('#exportFavBtn').addEventListener('click', () => {
   const fav = LS.get(KEYS.fav, []);
