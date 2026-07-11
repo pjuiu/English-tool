@@ -797,7 +797,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260711h</span>
+    <span>Shadow Reading Lab · v20260711i</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -5186,6 +5186,19 @@ async function ensureFFmpeg() {
   setCutStatus('');
   return ff;
 }
+/* 烧字幕用的字体：ffmpeg.wasm 跑在浏览器沙盒里，完全访问不到系统字体（原生 ffmpeg 在
+   Windows/Mac 上能用 DirectWrite/CoreText 自动找到系统装的 Arial，wasm 环境没有这一层）。
+   之前 force_style 写死 FontName=Arial，在 wasm 里 libass 找不到任何字体，
+   不会报错、只是把字全部画成空白——遮罩黑条能看到，字幕文字却完全不见了，这个坑很隐蔽，
+   命令"成功"执行、文件也有正常大小，肉眼不逐帧看根本发现不了。
+   打包一份开源字体（Roboto，Apache 2.0 许可）写进 ffmpeg 虚拟文件系统，用 fontsdir 指过去 */
+let ffFontWritten = false;
+async function ensureFFmpegFont(ff) {
+  if (ffFontWritten) return;
+  const buf = await (await fetch('roboto-regular.ttf')).arrayBuffer();
+  await ff.writeFile('roboto.ttf', new Uint8Array(buf));
+  ffFontWritten = true;
+}
 let ffRecentLogs = [];
 async function exportCutFile(i) {
   const c = cutSegments[i];
@@ -5197,6 +5210,7 @@ async function exportCutFile(i) {
   diagLog(`开始导出片段 ${c.label}：${c.start}s ~ ${c.end}s`);
   try {
     const ff = await ensureFFmpeg();
+    await ensureFFmpegFont(ff);
     const ext = (currentFileName.match(/\.[^.]+$/) || ['.mp4'])[0].toLowerCase();
     const inName = 'input' + ext;
     if (ffWrittenKey !== ffFileKey()) {
@@ -5220,7 +5234,7 @@ async function exportCutFile(i) {
         }).join('\n');
         await ff.writeFile('burn.srt', srt);
         diagLog(`已写入 burn.srt，${srt.length} 字符，前100字符预览: ${srt.slice(0,100).replace(/\n/g,'\\n')}`);
-        subFilter = "subtitles=burn.srt:force_style='FontName=Arial,FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=1.5,MarginV=30'";
+        subFilter = "subtitles=burn.srt:fontsdir=.:force_style='FontName=Roboto,FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=1.5,MarginV=30'";
       } else if (subtitles.length > 0) {
         showToast('这个片段的时间范围没有命中任何字幕，不会烧录新字幕（遮罩原字幕仍会生效）', 5000);
       }
