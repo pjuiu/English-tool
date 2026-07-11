@@ -797,7 +797,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260711i</span>
+    <span>Shadow Reading Lab · v20260711j</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -2510,15 +2510,19 @@ async function doLocalTranscribe() {
       let out;
       // Worker(proxy) 模式不支持词级时间戳：失败一次就记住，后续段直接用句级
       // （卡拉OK高亮会自动改用词长估算，观感几乎无差）
+      // no_repeat_ngram_size：tiny 模型遇到笑声/噪音/长时间沉默等非清晰人声内容时，
+      // 容易陷入"复读循环"（同一个词/短语重复几十遍），这个参数强制同一个 3-token
+      // 片段不能在输出里重复出现，能直接掐断这类循环——标准 HF transformers 生成参数，
+      // transformers.js 的 ASR pipeline 会原样透传给底层 generate()
       if (wordTsSupported) {
         try {
-          out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'word' });
+          out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'word', no_repeat_ngram_size: 3 });
         } catch (e1) {
           wordTsSupported = false;
-          out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+          out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true, no_repeat_ngram_size: 3 });
         }
       } else {
-        out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+        out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true, no_repeat_ngram_size: 3 });
       }
       const lowCut = p === 0 ? -1 : CUT;
       const highCut = (s0 + segDur < duration) ? (PIECE_SEC + CUT) : Infinity;
@@ -4189,13 +4193,13 @@ async function doSegmentTranscribe(startSec, endSec, cutIdx) {
     let out;
     if (wordTsSupported) {
       try {
-        out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'word' });
+        out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'word', no_repeat_ngram_size: 3 });
       } catch (e1) {
         wordTsSupported = false;
-        out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+        out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true, no_repeat_ngram_size: 3 });
       }
     } else {
-      out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+      out = await asr(seg, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true, no_repeat_ngram_size: 3 });
     }
     // 时间戳平移到全片绝对时间
     const chunks = (out.chunks || []).filter(c => c.text && c.text.trim()).map(c => ({
@@ -4294,7 +4298,7 @@ async function scorePractice() {
       }
     });
     const audio = await fileTo16kMono(practice.recBlob);
-    const out = await asr(audio);
+    const out = await asr(audio, { no_repeat_ngram_size: 3 });
     const hypText = (out.text || '').trim();
     const refWordsRaw = practice.text.split(/\s+/).filter(Boolean);
     const refWords = normWords(practice.text);
