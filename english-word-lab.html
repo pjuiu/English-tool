@@ -1,31 +1,38 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>English Word Lab</title>
 <style>
   :root{
-    --b1-bg:#dbeafe;--b1-fg:#1e40af;--b1-bd:#93c5fd;
-    --b2-bg:#d1fae5;--b2-fg:#065f46;--b2-bd:#6ee7b7;
-    --c1-bg:#fef3c7;--c1-fg:#92400e;--c1-bd:#fcd34d;
-    --c2-bg:#fce7f3;--c2-fg:#9d174d;--c2-bd:#f0abfc;
-    --blue:#2563eb;--blue-dark:#1d4ed8;
+    /* 跟"影子跟读实验室"共用的暖色调设计语言——两个工具一起用，视觉风格要是同一家的 */
+    --bg:#f0ede8;--surface:#e8e4de;--surface2:#ddd8d0;--border:#c8c2b8;
+    --text:#4a4540;--text-muted:#8a837a;
+    --accent:#8a9e8a;--accent-dark:#6a7e6a;--accent-light:#b8c8b8;
+    --accent2:#9e8a7a;--danger:#b8756a;--danger-light:#f3e3df;--success:#5f8060;--success-light:#e2ebdf;
+    --shadow:0 2px 8px rgba(74,69,64,0.10);
+    /* CEFR 等级色：保留"四种颜色区分四个等级"的编码方式，色相按易→难排成绿→黄→橙→棕的暖色渐变 */
+    --b1-bg:#dfe6d9;--b1-fg:#4f6b45;--b1-bd:#a8c295;
+    --b2-bg:#e6e3ce;--b2-fg:#6b5f2f;--b2-bd:#c2b787;
+    --c1-bg:#ede0c5;--c1-fg:#8a6423;--c1-bd:#d4b876;
+    --c2-bg:#e8d5cd;--c2-fg:#8a4f3a;--c2-bd:#d4a693;
+    --blue:var(--accent);--blue-dark:var(--accent-dark);
   }
   *{box-sizing:border-box;}
-  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#f8fafc;color:#1e293b;}
+  body{margin:0;font-family:'PingFang SC','Microsoft YaHei',system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);}
   header{
-    position:sticky;top:0;z-index:50;height:52px;background:#fff;border-bottom:1px solid #e2e8f0;
+    position:sticky;top:0;z-index:50;height:52px;background:var(--surface);border-bottom:1px solid var(--border);
     display:flex;align-items:center;justify-content:space-between;padding:0 16px;
   }
-  header .logo{font-weight:700;font-size:17px;color:#1e293b;}
+  header .logo{font-weight:700;font-size:17px;color:var(--text);}
   header .apikey{display:flex;align-items:center;gap:6px;}
   header input[type=password], header input[type=text]{
-    border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;font-size:13px;width:220px;
+    border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;width:220px;
   }
-  .tabs{display:flex;gap:24px;background:#fff;border-bottom:1px solid #e2e8f0;padding:0 16px;}
+  .tabs{display:flex;gap:24px;background:var(--surface);border-bottom:1px solid var(--border);padding:0 16px;}
   .tab-btn{
-    padding:12px 4px;border:none;background:none;font-size:14px;color:#64748b;cursor:pointer;
+    padding:12px 4px;border:none;background:none;font-size:14px;color:var(--text-muted);cursor:pointer;
     border-bottom:2px solid transparent;font-weight:500;
   }
   .tab-btn.active{color:var(--blue-dark);border-bottom-color:var(--blue);font-weight:600;}
@@ -56,9 +63,9 @@
   .level-pill[data-level=C2]{background:var(--c2-bg);color:var(--c2-fg);border-color:var(--c2-bd);}
 
   select, textarea, input{font-family:inherit;}
-  .material-select{width:100%;padding:8px 10px;margin-bottom:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff;}
+  .material-select{width:100%;padding:8px 10px;margin-bottom:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);}
   #pasteArea{
-    width:100%;min-height:180px;padding:12px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;
+    width:100%;min-height:180px;padding:12px;border:1px solid var(--border);border-radius:8px;font-size:14px;
     resize:vertical;line-height:1.6;
   }
   .btn{
@@ -66,33 +73,33 @@
     font-weight:600;cursor:pointer;transition:background .15s;
   }
   .btn:hover{background:var(--blue-dark);}
-  .btn.secondary{background:#fff;color:#334155;border:1px solid #cbd5e1;}
-  .btn.secondary:hover{background:#f1f5f9;}
-  .btn.danger{background:#fff;color:#dc2626;border:1px solid #fecaca;}
-  .btn.danger:hover{background:#fef2f2;}
+  .btn.secondary{background:var(--surface);color:var(--text);border:1px solid var(--border);}
+  .btn.secondary:hover{background:var(--surface2);}
+  .btn.danger{background:var(--surface);color:var(--danger);border:1px solid var(--danger);}
+  .btn.danger:hover{background:var(--danger-light);}
   .btn:disabled{opacity:.6;cursor:not-allowed;}
   .actions-row{margin-top:10px;display:flex;gap:10px;}
 
   #analyzedText{
-    padding:16px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;
+    padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;
     line-height:2;font-size:15px;white-space:pre-wrap;max-height:70vh;overflow-y:auto;
   }
   #highlightToolbar{
     display:none;align-items:center;gap:8px;margin-bottom:8px;
-    padding:6px 10px;background:#f8fafc;border:1px solid #e2e8f0;
+    padding:6px 10px;background:var(--bg);border:1px solid var(--border);
     border-radius:8px;flex-wrap:wrap;
   }
-  .hl-label{font-size:12px;color:#64748b;}
+  .hl-label{font-size:12px;color:var(--text-muted);}
   .hl-swatch{
     width:28px;height:28px;border-radius:6px;cursor:pointer;
     border:2px solid transparent;transition:border-color .12s;
     display:flex;align-items:center;justify-content:center;font-size:12px;
   }
 
-  .hl-swatch.selected{border-color:#334155 !important;}
-  .hl-clear{border:1px dashed #cbd5e1;color:#94a3b8;}
+  .hl-swatch.selected{border-color:var(--text) !important;}
+  .hl-clear{border:1px dashed var(--border);color:var(--text-muted);}
   #analyzedText .w{cursor:pointer;border-radius:3px;padding:0 1px;}
-  #analyzedText .w:hover{background:#eef2f7;}
+  #analyzedText .w:hover{background:var(--surface2);}
   #analyzedText .w.tagged{border-bottom:2px solid; padding-bottom:1px;}
   #analyzedText .w.B1{background:var(--b1-bg);color:var(--b1-fg);border-color:var(--b1-bd);}
   #analyzedText .w.B2{background:var(--b2-bg);color:var(--b2-fg);border-color:var(--b2-bd);}
@@ -101,16 +108,16 @@
   #analyzedText .w.selected{outline:2px solid var(--blue);}
 
   .panel-box{
-    background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;min-height:300px;
+    background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;min-height:300px;
     display:flex;flex-direction:column;flex:1;min-height:0;
   }
-  .panel-placeholder{color:#94a3b8;text-align:center;padding:60px 10px;font-size:14px;}
+  .panel-placeholder{color:var(--text-muted);text-align:center;padding:36px 10px;font-size:14px;}
   .spinner{
-    width:28px;height:28px;border:3px solid #e2e8f0;border-top-color:var(--blue);border-radius:50%;
+    width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;
     margin:0 auto 12px;animation:spin 0.8s linear infinite;
   }
   @keyframes spin{to{transform:rotate(360deg);}}
-  .loading-box{text-align:center;color:#64748b;padding:60px 10px;font-size:14px;}
+  .loading-box{text-align:center;color:var(--text-muted);padding:60px 10px;font-size:14px;}
   .explain-content{flex:1;font-size:14px;line-height:1.7;}
   .explain-content h4{margin:14px 0 4px;font-size:14px;font-weight:700;}
   .explain-content h4:first-child{margin-top:0;}
@@ -119,33 +126,33 @@
   .explain-content ol{margin:4px 0 4px 18px;padding:0;}
   .explain-content .ex-word{font-weight:700;color:var(--blue-dark);}
   .save-card-btn{margin-top:14px;width:100%;}
-  .explain-content em, .explain-content i{color:#475569;}
+  .explain-content em, .explain-content i{color:var(--text);}
   #explainModeTabs{
-    display:flex;gap:0;margin-bottom:12px;border-bottom:1px solid #e2e8f0;flex-shrink:0;
+    display:flex;gap:0;margin-bottom:12px;border-bottom:1px solid var(--border);flex-shrink:0;
   }
   .mode-tab{
     padding:6px 16px;border:none;background:none;font-size:13px;
-    color:#64748b;cursor:pointer;border-bottom:2px solid transparent;
+    color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;
     font-weight:500;
   }
-  .mode-tab.active{color:#1d4ed8;border-bottom-color:#2563eb;}
+  .mode-tab.active{color:var(--accent-dark);border-bottom-color:var(--accent);}
   #explainMain{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;}
   .board-card {
-    background: #fff;
+    background: var(--surface);
     border-radius: 12px;
-    border: 1px solid #e2e8f0;
-    border-left: 4px solid #cbd5e1;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
     box-shadow: 0 2px 10px rgba(0,0,0,0.06);
     padding: 14px 16px;
     margin-bottom: 12px;
     position: relative;
   }
   .board-card.flash { animation: flash 0.6s; }
-  @keyframes flash { 0%,100%{background:#fff;} 50%{background:#fef08a;} }
-  .board-card.lvl-B1 { border-left-color: #93c5fd; }
-  .board-card.lvl-B2 { border-left-color: #6ee7b7; }
-  .board-card.lvl-C1 { border-left-color: #fcd34d; }
-  .board-card.lvl-C2 { border-left-color: #f0abfc; }
+  @keyframes flash { 0%,100%{background:var(--surface);} 50%{background:#fef08a;} }
+  .board-card.lvl-B1 { border-left-color: var(--b1-bd); }
+  .board-card.lvl-B2 { border-left-color: var(--b2-bd); }
+  .board-card.lvl-C1 { border-left-color: var(--c1-bd); }
+  .board-card.lvl-C2 { border-left-color: var(--c2-bd); }
 
   .board-card-header {
     display: flex;
@@ -154,19 +161,19 @@
     margin-bottom: 10px;
   }
   .board-card-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .board-word { font-size: 17px; font-weight: 700; color: #0f172a; }
+  .board-word { font-size: 17px; font-weight: 700; color: var(--text); }
   .board-del {
     flex-shrink: 0; border: none; background: none;
-    color: #94a3b8; cursor: pointer; font-size: 14px; padding: 2px 4px;
+    color: var(--text-muted); cursor: pointer; font-size: 14px; padding: 2px 4px;
   }
-  .board-del:hover { color: #dc2626; }
+  .board-del:hover { color: var(--danger); }
   .board-card-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
   .board-save {
-    flex-shrink: 0; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px;
-    color: #475569; cursor: pointer; font-size: 12px; padding: 3px 9px;
+    flex-shrink: 0; border: 1px solid var(--border); background: var(--surface); border-radius: 6px;
+    color: var(--text); cursor: pointer; font-size: 12px; padding: 3px 9px;
   }
-  .board-save:hover:not(:disabled) { background: #f1f5f9; border-color: #94a3b8; }
-  .board-save:disabled { color: #059669; border-color: #a7f3d0; background: #ecfdf5; cursor: default; }
+  .board-save:hover:not(:disabled) { background: var(--surface2); border-color: var(--text-muted); }
+  .board-save:disabled { color: var(--success); border-color: var(--success); background: var(--success-light); cursor: default; }
 
   .board-row {
     display: flex;
@@ -176,44 +183,44 @@
     align-items: flex-start;
   }
   .board-row-icon { font-size: 13px; flex-shrink: 0; margin-top: 1px; }
-  .board-row-text { font-size: 13px; color: #334155; }
-  .board-row-text.muted { color: #64748b; }
-  .board-row-text.bold { font-weight: 600; color: #1e293b; }
-  .board-row-text.italic { font-style: italic; color: #475569; }
+  .board-row-text { font-size: 13px; color: var(--text); }
+  .board-row-text.muted { color: var(--text-muted); }
+  .board-row-text.bold { font-weight: 600; color: var(--text); }
+  .board-row-text.italic { font-style: italic; color: var(--text); }
 
-  .board-divider { height: 1px; background: #f1f5f9; margin: 8px 0; }
+  .board-divider { height: 1px; background: var(--surface2); margin: 8px 0; }
 
   .pattern-pills { display: flex; flex-wrap: wrap; gap: 5px; }
   .pattern-pill {
-    background: #f1f5f9; color: #475569;
+    background: var(--surface2); color: var(--text);
     border-radius: 5px; padding: 2px 9px;
     font-size: 12px; line-height: 1.6;
   }
 
   .board-example-text {
-    font-size: 12.5px; color: #64748b;
+    font-size: 12.5px; color: var(--text-muted);
     font-style: italic; line-height: 1.55;
   }
   .board-more {
-    font-size: 12px; color: #2563eb; cursor: pointer;
+    font-size: 12px; color: var(--accent); cursor: pointer;
     margin-top: 8px; font-weight: 600; user-select: none;
   }
   .board-more:hover { text-decoration: underline; }
   .board-upgrade {
     margin-top: 8px; font-size: 12px; padding: 4px 10px;
-    border: 1px solid #c7d2fe; background: #eef2ff; color: #4338ca;
+    border: 1px solid var(--c2-bd); background: var(--c2-bg); color: var(--c2-fg);
     border-radius: 6px; cursor: pointer;
   }
-  .board-upgrade:hover { background: #e0e7ff; }
+  .board-upgrade:hover { background: var(--accent-light); }
   .board-upgrade:disabled { opacity: .6; cursor: not-allowed; }
   .dict-tag {
-    font-size: 10.5px; color: #64748b; background: #f1f5f9;
+    font-size: 10.5px; color: var(--text-muted); background: var(--surface2);
     border-radius: 4px; padding: 1px 6px; font-weight: 500;
   }
   .board-source-text {
-    font-size: 11.5px; color: #94a3b8;
+    font-size: 11.5px; color: var(--text-muted);
     font-style: italic; margin-top: 6px;
-    padding-left: 8px; border-left: 2px solid #e2e8f0;
+    padding-left: 8px; border-left: 2px solid var(--border);
   }
 
   .board-toolbar {
@@ -221,31 +228,31 @@
     margin-bottom: 12px; flex-wrap: wrap;
   }
   .board-count {
-    font-size: 12px; color: #64748b;
-    background: #f1f5f9; padding: 4px 10px;
+    font-size: 12px; color: var(--text-muted);
+    background: var(--surface2); padding: 4px 10px;
     border-radius: 20px; font-weight: 500;
   }
   .copy-explain-btn{
-    border:none;background:none;color:#64748b;cursor:pointer;font-size:12px;
-    padding:3px 8px;border-radius:6px;border:1px solid #cbd5e1;
+    border:none;background:none;color:var(--text-muted);cursor:pointer;font-size:12px;
+    padding:3px 8px;border-radius:6px;border:1px solid var(--border);
   }
-  .copy-explain-btn:hover{background:#f1f5f9;}
+  .copy-explain-btn:hover{background:var(--surface2);}
 
   /* My Cards */
   .filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;}
   .filter-bar .spacer{flex:1;}
   .filter-pill{
-    padding:6px 14px;border-radius:999px;font-size:13px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;
+    padding:6px 14px;border-radius:999px;font-size:13px;border:1px solid var(--border);background:var(--surface);cursor:pointer;
   }
-  .filter-pill.active{background:#1e293b;color:#fff;border-color:#1e293b;}
-  .filter-pill[data-filter="B1"].active{background:#dbeafe;color:#1e40af;border-color:#93c5fd;}
-  .filter-pill[data-filter="B2"].active{background:#d1fae5;color:#065f46;border-color:#6ee7b7;}
-  .filter-pill[data-filter="C1"].active{background:#fef3c7;color:#92400e;border-color:#fcd34d;}
-  .filter-pill[data-filter="C2"].active{background:#fce7f3;color:#9d174d;border-color:#f0abfc;}
-  #cardSearch{padding:7px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;width:220px;}
+  .filter-pill.active{background:var(--text);color:#fff;border-color:var(--text);}
+  .filter-pill[data-filter="B1"].active{background:var(--b1-bg);color:var(--b1-fg);border-color:var(--b1-bd);}
+  .filter-pill[data-filter="B2"].active{background:var(--b2-bg);color:var(--b2-fg);border-color:var(--b2-bd);}
+  .filter-pill[data-filter="C1"].active{background:var(--c1-bg);color:var(--c1-fg);border-color:var(--c1-bd);}
+  .filter-pill[data-filter="C2"].active{background:var(--c2-bg);color:var(--c2-fg);border-color:var(--c2-bd);}
+  #cardSearch{padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:220px;}
   .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;}
   .word-card{
-    background:#fff;border-radius:10px;border:1px solid #e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,0.06);
+    background:var(--surface);border-radius:10px;border:1px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,0.06);
     padding:14px;position:relative;
   }
   .wc-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-right:20px;}
@@ -256,52 +263,52 @@
   .badge.C1{background:var(--c1-bg);color:var(--c1-fg);}
   .badge.C2{background:var(--c2-bg);color:var(--c2-fg);}
   .wc-close{
-    position:absolute;top:10px;right:10px;border:none;background:none;color:#94a3b8;cursor:pointer;font-size:16px;
+    position:absolute;top:10px;right:10px;border:none;background:none;color:var(--text-muted);cursor:pointer;font-size:16px;
   }
-  .wc-close:hover{color:#dc2626;}
-  .wc-preview{font-size:13px;color:#475569;margin-bottom:8px;}
+  .wc-close:hover{color:var(--danger);}
+  .wc-preview{font-size:13px;color:var(--text);margin-bottom:8px;}
   .wc-toggle{font-size:12px;color:var(--blue-dark);cursor:pointer;font-weight:600;}
   .wc-full{display:none;margin-top:8px;font-size:13px;line-height:1.6;}
   .wc-full.open{display:block;}
-  .wc-source{font-style:italic;color:#64748b;margin-top:8px;font-size:12.5px;border-left:3px solid #e2e8f0;padding-left:8px;}
-  .wc-time{position:absolute;bottom:8px;right:12px;font-size:11px;color:#94a3b8;}
-  .empty-state{color:#94a3b8;text-align:center;padding:50px 10px;font-size:14px;}
+  .wc-source{font-style:italic;color:var(--text-muted);margin-top:8px;font-size:12.5px;border-left:3px solid var(--border);padding-left:8px;}
+  .wc-time{position:absolute;bottom:8px;right:12px;font-size:11px;color:var(--text-muted);}
+  .empty-state{color:var(--text-muted);text-align:center;padding:50px 10px;font-size:14px;}
 
   /* Review */
   .review-stage{max-width:600px;margin:0 auto;}
-  .review-progress{font-size:13px;color:#64748b;margin-bottom:12px;text-align:center;}
+  .review-progress{font-size:13px;color:var(--text-muted);margin-bottom:12px;text-align:center;}
   .review-card{
-    background:#fff;border:1px solid #e2e8f0;border-radius:14px;
+    background:var(--surface);border:1px solid var(--border);border-radius:14px;
     box-shadow:0 2px 10px rgba(0,0,0,0.06);padding:28px 24px;text-align:center;
   }
   .review-word{font-size:28px;font-weight:700;margin-bottom:8px;}
-  .review-source{font-size:13px;color:#64748b;font-style:italic;margin-top:10px;}
+  .review-source{font-size:13px;color:var(--text-muted);font-style:italic;margin-top:10px;}
   .review-answer{
-    text-align:left;margin-top:18px;border-top:1px solid #e2e8f0;padding-top:14px;
+    text-align:left;margin-top:18px;border-top:1px solid var(--border);padding-top:14px;
     font-size:14px;line-height:1.7;display:none;
   }
   .review-answer.open{display:block;}
   .spell-diff-row{font-size:16px;font-family:ui-monospace,Menlo,Consolas,monospace;margin-top:6px;text-align:left;letter-spacing:1px;}
-  .spell-diff-label{display:inline-block;min-width:66px;font-family:inherit;font-size:12px;color:#94a3b8;letter-spacing:normal;vertical-align:middle;}
-  .spell-diff-bad{background:#fee2e2;color:#dc2626;border-radius:3px;}
-  .spell-diff-missing{background:#fef3c7;color:#b45309;border-radius:3px;text-decoration:underline;}
-  .spell-summary{text-align:left;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:14px;}
-  .spell-summary-title{font-size:13px;color:#475569;margin-bottom:8px;}
+  .spell-diff-label{display:inline-block;min-width:66px;font-family:inherit;font-size:12px;color:var(--text-muted);letter-spacing:normal;vertical-align:middle;}
+  .spell-diff-bad{background:var(--danger-light);color:var(--danger);border-radius:3px;}
+  .spell-diff-missing{background:var(--c1-bg);color:var(--c1-fg);border-radius:3px;text-decoration:underline;}
+  .spell-summary{text-align:left;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;}
+  .spell-summary-title{font-size:13px;color:var(--text);margin-bottom:8px;}
   .spell-summary-list{display:flex;flex-wrap:wrap;gap:6px;}
   .spell-summary-item{font-size:12px;padding:3px 9px;border-radius:6px;border:1px solid transparent;}
-  .spell-summary-item.ok{color:#059669;background:#ecfdf5;border-color:#a7f3d0;}
-  .spell-summary-item.no{color:#dc2626;background:#fef2f2;border-color:#fecaca;}
+  .spell-summary-item.ok{color:var(--success);background:var(--success-light);border-color:var(--success);}
+  .spell-summary-item.no{color:var(--danger);background:var(--danger-light);border-color:var(--danger);}
   .review-actions{display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap;}
-  .btn.forgot{background:#fff;color:#dc2626;border:1px solid #fecaca;}
-  .btn.forgot:hover{background:#fef2f2;}
-  .btn.remembered{background:#059669;}
-  .btn.remembered:hover{background:#047857;}
+  .btn.forgot{background:var(--surface);color:var(--danger);border:1px solid var(--danger);}
+  .btn.forgot:hover{background:var(--danger-light);}
+  .btn.remembered{background:var(--success);}
+  .btn.remembered:hover{background:var(--accent-dark);}
   .speak-btn{
-    border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer;
-    font-size:13px;padding:2px 8px;color:#475569;vertical-align:middle;
+    border:1px solid var(--border);background:var(--surface);border-radius:6px;cursor:pointer;
+    font-size:13px;padding:2px 8px;color:var(--text);vertical-align:middle;
   }
-  .speak-btn:hover{background:#f1f5f9;}
-  .ipa{color:#64748b;font-size:13px;font-weight:400;white-space:nowrap;}
+  .speak-btn:hover{background:var(--surface2);}
+  .ipa{color:var(--text-muted);font-size:13px;font-weight:400;white-space:nowrap;}
   .review-word .ipa{font-size:15px;display:block;margin-top:2px;}
   .say-btn{
     border:none;background:none;cursor:pointer;font-size:12px;padding:0 3px;
@@ -310,14 +317,14 @@
   .say-btn:hover{opacity:1;}
   .review-stats{
     display:flex;gap:14px;flex-wrap:wrap;justify-content:center;
-    font-size:13px;color:#475569;background:#fff;border:1px solid #e2e8f0;
+    font-size:13px;color:var(--text);background:var(--surface);border:1px solid var(--border);
     border-radius:10px;padding:10px 16px;margin-bottom:16px;
   }
-  .review-stats b{color:#1d4ed8;}
+  .review-stats b{color:var(--accent-dark);}
   .board-batch-progress{margin-bottom:10px;}
-  .board-batch-bar{height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;}
-  .board-batch-fill{height:100%;background:#2563eb;transition:width .2s;}
-  .board-batch-label{font-size:11.5px;color:#64748b;display:block;margin-top:4px;}
+  .board-batch-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
+  .board-batch-fill{height:100%;background:var(--accent);transition:width .2s;}
+  .board-batch-label{font-size:11.5px;color:var(--text-muted);display:block;margin-top:4px;}
 
   /* 截图模式：隐藏工具栏/按钮，只留词卡内容 */
   body.screenshot-mode header,
@@ -332,38 +339,38 @@
   body.screenshot-mode main { padding-top:8px; }
   #exitScreenshotBtn{
     position:fixed; top:12px; right:12px; z-index:9999; display:none;
-    background:#1e293b; color:#fff; border:none; border-radius:8px;
+    background:var(--text); color:#fff; border:none; border-radius:8px;
     padding:8px 14px; font-size:13px; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.2);
   }
   body.screenshot-mode #exitScreenshotBtn{ display:block; }
   .review-mode-row{display:flex;gap:8px;justify-content:center;margin-bottom:14px;}
   #spellInput{
-    width:100%;max-width:320px;padding:10px 14px;border:2px solid #cbd5e1;border-radius:10px;
+    width:100%;max-width:320px;padding:10px 14px;border:2px solid var(--border);border-radius:10px;
     font-size:18px;text-align:center;margin-top:14px;outline:none;font-family:inherit;
   }
   #spellInput:focus{border-color:var(--blue);}
-  #spellInput.correct{border-color:#059669;background:#ecfdf5;}
-  #spellInput.wrong{border-color:#dc2626;background:#fef2f2;}
+  #spellInput.correct{border-color:var(--success);background:var(--success-light);}
+  #spellInput.wrong{border-color:var(--danger);background:var(--danger-light);}
   #spellResult{margin-top:12px;font-size:15px;min-height:24px;}
-  #spellResult .ok{color:#059669;font-weight:700;}
-  #spellResult .no{color:#dc2626;font-weight:700;}
+  #spellResult .ok{color:var(--success);font-weight:700;}
+  #spellResult .no{color:var(--danger);font-weight:700;}
 
   /* Materials */
-  .mat-form{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:20px;}
-  .mat-form input[type=text]{width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:10px;font-size:14px;}
+  .mat-form{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;}
+  .mat-form input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;font-size:14px;}
   .tag-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
-  .tag-pill{padding:5px 12px;border-radius:999px;font-size:12.5px;border:1px solid #cbd5e1;background:#f8fafc;cursor:pointer;}
-  .tag-pill.active{background:#1e293b;color:#fff;border-color:#1e293b;}
-  .mat-form textarea{width:100%;min-height:140px;padding:10px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:10px;font-size:13.5px;}
+  .tag-pill{padding:5px 12px;border-radius:999px;font-size:12.5px;border:1px solid var(--border);background:var(--bg);cursor:pointer;}
+  .tag-pill.active{background:var(--text);color:#fff;border-color:var(--text);}
+  .mat-form textarea{width:100%;min-height:140px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;font-size:13.5px;}
   .mat-list-item{
-    background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-bottom:10px;
+    background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;
     display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);
   }
   .mat-info{flex:1;min-width:0;}
   .mat-title{font-weight:600;font-size:14.5px;margin-bottom:4px;}
   .mat-tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;}
-  .mat-tag{background:#eef2f7;color:#475569;font-size:11px;padding:2px 8px;border-radius:999px;}
-  .mat-meta{font-size:12px;color:#94a3b8;}
+  .mat-tag{background:var(--surface2);color:var(--text);font-size:11px;padding:2px 8px;border-radius:999px;}
+  .mat-meta{font-size:12px;color:var(--text-muted);}
   .mat-actions{display:flex;gap:8px;flex-shrink:0;}
 
   /* ══ 移动端适配（放在样式表末尾，确保同优先级选择器下总能覆盖前面的桌面端规则）══
@@ -406,27 +413,38 @@
     .filter-bar{gap:6px;}
     .tabs{gap:12px;padding:0 12px;}
     .tab-btn{font-size:13px;padding:10px 2px;}
+
+    /* My Cards：小屏强制单列（minmax(320px,1fr) 在很窄的机型上会顶到临界值甚至溢出） */
+    .card-grid{grid-template-columns:1fr;}
+
+    /* Review：卡片内边距在小屏上偏宽，两侧留白挤占内容宽度 */
+    .review-card{padding:20px 16px;}
+    .review-word{font-size:24px;}
+
+    /* Materials：标题+标签+操作按钮横排在窄屏下容易挤在一起，改成上下堆叠 */
+    .mat-list-item{flex-direction:column;align-items:stretch;gap:8px;}
+    .mat-actions{justify-content:flex-end;}
   }
 </style>
 </head>
 <body>
 
 <header>
-  <div class="logo">📘 English Word Lab <span style="font-size:11px;color:#94a3b8;font-weight:400;">v20260710b</span></div>
+  <div class="logo">📘 English Word Lab <span style="font-size:11px;color:var(--text-muted);font-weight:400;">v20260711a</span></div>
   <div class="apikey">
     <button class="btn secondary" id="backupBtn" style="padding:5px 10px;font-size:12px;">💾 备份</button>
     <button class="btn secondary" id="restoreBtn" style="padding:5px 10px;font-size:12px;">📥 恢复</button>
     <input type="file" id="restoreFile" accept=".json" style="display:none" autocomplete="off">
-    <label for="apiKeyInput" style="font-size:13px;color:#64748b;">DeepSeek API Key</label>
+    <label for="apiKeyInput" style="font-size:13px;color:var(--text-muted);">DeepSeek 密钥</label>
     <input type="password" id="apiKeyInput" placeholder="sk-..." autocomplete="off">
   </div>
 </header>
 
 <div class="tabs">
-  <button class="tab-btn active" data-tab="wordlab">Word Lab</button>
-  <button class="tab-btn" data-tab="cards">My Cards</button>
-  <button class="tab-btn" data-tab="review">Review</button>
-  <button class="tab-btn" data-tab="materials">Materials</button>
+  <button class="tab-btn active" data-tab="wordlab">选词</button>
+  <button class="tab-btn" data-tab="cards">我的卡片</button>
+  <button class="tab-btn" data-tab="review">复习</button>
+  <button class="tab-btn" data-tab="materials">素材库</button>
 </div>
 
 <main>
@@ -442,11 +460,11 @@
         <div class="level-pill" data-level="C2">C2</div>
       </div>
       <select class="material-select" id="materialSelect">
-        <option value="">— Select from Materials library —</option>
+        <option value="">— 从素材库选择 —</option>
       </select>
-      <textarea id="pasteArea" placeholder="Paste your text here..."></textarea>
+      <textarea id="pasteArea" placeholder="粘贴文本…"></textarea>
       <div class="actions-row">
-        <button class="btn" id="analyzeBtn">Analyze (AI)</button>
+        <button class="btn" id="analyzeBtn">AI 标注</button>
         <button class="btn secondary" id="offlineAnalyzeBtn" title="按词频近似分级，零费用秒出结果；不如 AI 懂语境，但适合快速筛词">⚡ 离线标注（免费）</button>
       </div>
     </div>
@@ -471,15 +489,15 @@
       <div class="wl-right">
         <div class="panel-box" id="explainBox">
           <div id="explainModeTabs" style="display:none;">
-            <button class="mode-tab active" data-mode="detailed">Detailed</button>
-            <button class="mode-tab" data-mode="brief">Brief · Board</button>
+            <button class="mode-tab active" data-mode="detailed">详细解释</button>
+            <button class="mode-tab" data-mode="brief">速记·看板</button>
             <button class="btn secondary" id="screenshotModeBtn" style="margin-left:auto;font-size:11px;padding:4px 10px;" title="临时隐藏工具栏和按钮，只留词卡内容，方便截图">📷 截图模式</button>
-            <label style="font-size:12px;color:#64748b;display:flex;align-items:center;gap:4px;cursor:pointer;" title="勾选后不调用 AI，用本地英英词典（WordNet）生成免费解释">
+            <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;" title="勾选后不调用 AI，用本地英英词典（WordNet）生成免费解释">
               <input type="checkbox" id="freeDictToggle"> 📖 免费词典模式
             </label>
           </div>
           <div id="explainMain">
-            <div class="panel-placeholder">Click any word to explore</div>
+            <div class="panel-placeholder">点击任意单词查看解释</div>
           </div>
         </div>
       </div>
@@ -489,7 +507,7 @@
   <!-- MY CARDS -->
   <section class="panel" id="panel-cards">
     <div class="filter-bar">
-      <div class="filter-pill active" data-filter="All">All</div>
+      <div class="filter-pill active" data-filter="All">全部</div>
       <div class="filter-pill" data-filter="B1">B1</div>
       <div class="filter-pill" data-filter="B2">B2</div>
       <div class="filter-pill" data-filter="C1">C1</div>
@@ -501,10 +519,10 @@
         <option value="level">按等级 B1→C2</option>
         <option value="alpha">按字母</option>
       </select>
-      <input type="text" id="cardSearch" placeholder="Search word or content...">
-      <button class="btn secondary" id="exportBtn">Export .txt</button>
-      <button class="btn secondary" id="ankiExportBtn">Export Anki</button>
-      <span id="storageInfo" style="font-size:11px;color:#94a3b8;"></span>
+      <input type="text" id="cardSearch" placeholder="搜索单词或内容…">
+      <button class="btn secondary" id="exportBtn">导出 .txt</button>
+      <button class="btn secondary" id="ankiExportBtn">导出 Anki</button>
+      <span id="storageInfo" style="font-size:11px;color:var(--text-muted);"></span>
       <button class="btn secondary" id="cleanCacheBtn" style="font-size:12px;padding:5px 10px;" title="清理解释缓存/搭配缓存等（不动卡片、材料、看板、复习记录）">🧹 清理缓存</button>
     </div>
     <div class="card-grid" id="cardGrid"></div>
@@ -518,7 +536,7 @@
   <!-- MATERIALS -->
   <section class="panel" id="panel-materials">
     <div class="mat-form">
-      <input type="text" id="matTitle" placeholder="Title">
+      <input type="text" id="matTitle" placeholder="标题">
       <div class="tag-row" id="matTagRow">
         <div class="tag-pill" data-tag="播客">播客</div>
         <div class="tag-pill" data-tag="TED">TED</div>
@@ -526,9 +544,9 @@
         <div class="tag-pill" data-tag="剧集">剧集</div>
         <div class="tag-pill" data-tag="文章">文章</div>
       </div>
-      <input type="text" id="matCustomTag" placeholder="Custom tag (press Enter to add)">
-      <textarea id="matBody" placeholder="Paste material text here..."></textarea>
-      <button class="btn" id="saveMaterialBtn">Save Material</button>
+      <input type="text" id="matCustomTag" placeholder="自定义标签（回车添加）">
+      <textarea id="matBody" placeholder="粘贴素材文本…"></textarea>
+      <button class="btn" id="saveMaterialBtn">保存素材</button>
     </div>
     <div id="materialList"></div>
   </section>
@@ -575,7 +593,7 @@ function setMaterials(v){ localStorage.setItem('ewl_materials', JSON.stringify(v
 async function callDeepSeek(systemPrompt, userMessage){
   const key = localStorage.getItem('deepseek_api_key') || localStorage.getItem('shadow_deepseek_key');
   if(!key){
-    alert('Please enter your DeepSeek API Key at the top right.');
+    alert('请先在右上角填写 DeepSeek 密钥。');
     throw new Error('no api key');
   }
   const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -616,7 +634,7 @@ $$('#levelRow .level-pill').forEach(pill => {
 function populateMaterialSelect(){
   const sel = $('#materialSelect');
   const materials = getMaterials();
-  sel.innerHTML = '<option value="">— Select from Materials library —</option>';
+  sel.innerHTML = '<option value="">— 从素材库选择 —</option>';
   materials.forEach(m => {
     const opt = document.createElement('option');
     opt.value = m.id;
@@ -698,8 +716,8 @@ function splitTextForAnalysis(text, maxLen){
 
 $('#analyzeBtn').addEventListener('click', async (e) => {
   const text = $('#pasteArea').value.trim();
-  if(!text){ alert('Please paste some text first.'); return; }
-  if(selectedLevels.size === 0){ alert('Please select at least one CEFR level.'); return; }
+  if(!text){ alert('请先粘贴文本。'); return; }
+  if(selectedLevels.size === 0){ alert('请至少选择一个 CEFR 等级。'); return; }
   lastAnalyzedSourceText = text;
   const btn = $('#analyzeBtn');
   btn.disabled = true;
@@ -709,7 +727,7 @@ $('#analyzeBtn').addEventListener('click', async (e) => {
     let combined = '';
     let truncated = false;
     for(let i = 0; i < chunks.length; i++){
-      btn.textContent = chunks.length > 1 ? `Analyzing ${i+1}/${chunks.length}...` : 'Analyzing...';
+      btn.textContent = chunks.length > 1 ? `标注中 ${i+1}/${chunks.length}…` : '标注中…';
       const result = await callDeepSeek(ANALYZE_SYSTEM_PROMPT, `Mark these levels: ${levelsStr}\n\nText:\n${chunks[i]}`);
       const plain = result.replace(/<\/?(?:B1|B2|C1|C2)>/g, '');
       if(plain.length < chunks[i].length * 0.85) truncated = true;
@@ -720,9 +738,9 @@ $('#analyzeBtn').addEventListener('click', async (e) => {
     }
     renderAnalyzedText(combined);
   }catch(err){
-    alert('Error: ' + err.message);
+    alert('出错了：' + err.message);
   }finally{
-    btn.disabled = false; btn.textContent = 'Re-analyze';
+    btn.disabled = false; btn.textContent = '重新标注';
   }
 });
 
@@ -829,7 +847,7 @@ function restoreAnalysis(){
     container.innerHTML = data.html;
     container.style.display = 'block';
     $('#highlightToolbar').style.display = 'flex';
-    $('#analyzeBtn').textContent = 'Re-analyze';
+    $('#analyzeBtn').textContent = '重新标注';
     $('#allToBoardBtn').style.display = container.querySelector('.w.tagged') ? 'inline-block' : 'none';
     showResultView();
   }catch(e){}
@@ -1009,7 +1027,7 @@ $$('.mode-tab').forEach(tab => {
     } else if(currentExplain){
       renderExplainBox(currentExplain);
     } else {
-      $('#explainMain').innerHTML = '<div class="panel-placeholder">Click any word to explore</div>';
+      $('#explainMain').innerHTML = '<div class="panel-placeholder">点击任意单词查看解释</div>';
     }
   });
 });
@@ -1021,7 +1039,7 @@ function onWordClick(span){
       span.style.color = '';
     } else {
       span.style.background = activeHighlightColor;
-      span.style.color = '#1e293b';
+      span.style.color = 'var(--text)';
     }
     persistAnalysis();
     return;
@@ -1107,7 +1125,7 @@ function offlineRankOf(w){   // 查词频：原形没有就试规则还原后的
 }
 async function offlineAnalyze(){
   const text = $('#pasteArea').value.trim();
-  if(!text){ alert('Please paste some text first.'); return; }
+  if(!text){ alert('请先粘贴文本。'); return; }
   if(selectedLevels.size === 0){ alert('请先选择至少一个 CEFR 等级。'); return; }
   const btn = $('#offlineAnalyzeBtn');
   btn.disabled = true;
@@ -1115,7 +1133,7 @@ async function offlineAnalyze(){
   const okFreq = await ensureFreqRank();
   await ensureWnDict();   // 用于词组识别与生僻词判断，加载失败不阻塞
   if(!okFreq){
-    alert('离线标注需要词频文件 freq-rank-en.js（本页面同文件夹）。\n\n获取方式：它在你的部署包 / GitHub 仓库（pjuiu/English-tool）里，下载后与本 HTML 放在一起即可。\n\n现在可以先用「Analyze (AI)」按钮（需 DeepSeek Key）。');
+    alert('离线标注需要词频文件 freq-rank-en.js（本页面同文件夹）。\n\n获取方式：它在你的部署包 / GitHub 仓库（pjuiu/English-tool）里，下载后与本 HTML 放在一起即可。\n\n现在可以先用「AI 标注」按钮（需 DeepSeek 密钥）。');
     btn.disabled = false; btn.textContent = '⚡ 离线标注（免费）';
     return;
   }
@@ -1286,7 +1304,7 @@ $('#allToBoardBtn').addEventListener('click', async () => {
       list.push({ w, l: s.dataset.level || '' });
     }
   });
-  if(list.length === 0){ alert('当前没有标注词。请先 Analyze。'); return; }
+  if(list.length === 0){ alert('当前没有标注词。请先点「AI 标注」或「离线标注」。'); return; }
 
   // 预检：统计有多少词没有缓存、需要生成；免费词典模式下无需 Key
   const cache = getExplainCache();
@@ -1373,15 +1391,15 @@ function renderExplainBox(data){
   main.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
       <span class="ex-word" style="font-size:17px;font-weight:700;">${escapeHtml(data.word)}</span>
-      ${data.original && data.original.toLowerCase() !== data.word.toLowerCase() ? `<span style="font-size:12px;color:#94a3b8;">← ${escapeHtml(data.original)}</span>` : ''}
+      ${data.original && data.original.toLowerCase() !== data.word.toLowerCase() ? `<span style="font-size:12px;color:var(--text-muted);">← ${escapeHtml(data.original)}</span>` : ''}
       <span class="ipa" data-ipa="${escapeHtml(data.word)}" style="flex:1;"></span>
-      <button class="speak-btn" id="speakExplainBtn" title="Pronounce">🔊</button>
+      <button class="speak-btn" id="speakExplainBtn" title="发音">🔊</button>
       ${levelBadge}
-      <button class="copy-explain-btn" id="copyExplainBtn">Copy</button>
+      <button class="copy-explain-btn" id="copyExplainBtn">复制</button>
     </div>
     <div class="explain-content">${formatExplainHtml(data.content)}</div>
     <div id="collocBox"></div>
-    <button class="btn save-card-btn" id="saveCardBtn">Save to My Cards</button>
+    <button class="btn save-card-btn" id="saveCardBtn">保存到我的卡片</button>
   `;
   $('#speakExplainBtn').addEventListener('click', () => speak(data.word));
   attachAllIpa(main);
@@ -1390,14 +1408,14 @@ function renderExplainBox(data){
   const cleanWord = data.word.replace(/^[^a-zA-Z'-]+|[^a-zA-Z'-]+$/g, '');
   const alreadySaved = getCards().some(c => c.word.toLowerCase() === cleanWord.toLowerCase());
   if(alreadySaved){
-    $('#saveCardBtn').textContent = 'Already saved ✓';
+    $('#saveCardBtn').textContent = '已保存 ✓';
     $('#saveCardBtn').disabled = true;
   }
 
   $('#saveCardBtn').addEventListener('click', () => {
     const cards = getCards();
     if(cards.some(c => c.word.toLowerCase() === cleanWord.toLowerCase())){
-      $('#saveCardBtn').textContent = 'Already saved ✓';
+      $('#saveCardBtn').textContent = '已保存 ✓';
       $('#saveCardBtn').disabled = true;
       return;
     }
@@ -1410,15 +1428,15 @@ function renderExplainBox(data){
       savedAt: new Date().toISOString()
     });
     setCards(cards);
-    $('#saveCardBtn').textContent = 'Saved ✓';
+    $('#saveCardBtn').textContent = '已保存 ✓';
     $('#saveCardBtn').disabled = true;
   });
 
   $('#copyExplainBtn').addEventListener('click', () => {
-    const text = `${cleanWord}${data.level ? ' [' + data.level + ']' : ''}\n\n${data.content}\n\nSource: "${data.sourceSentence}"`;
+    const text = `${cleanWord}${data.level ? ' [' + data.level + ']' : ''}\n\n${data.content}\n\n来源："${data.sourceSentence}"`;
     navigator.clipboard.writeText(text).then(() => {
-      $('#copyExplainBtn').textContent = 'Copied ✓';
-      setTimeout(() => { $('#copyExplainBtn').textContent = 'Copy'; }, 1500);
+      $('#copyExplainBtn').textContent = '已复制 ✓';
+      setTimeout(() => { $('#copyExplainBtn').textContent = '复制'; }, 1500);
     });
   });
 }
@@ -1496,8 +1514,8 @@ function renderBoard(){
   const main = $('#explainMain');
   if(boardItems.length === 0){
     main.innerHTML = boardBatchState
-      ? boardBatchProgressHtml() + '<div class="panel-placeholder">Click words to build your board</div>'
-      : '<div class="panel-placeholder">Click words to build your board</div>';
+      ? boardBatchProgressHtml() + '<div class="panel-placeholder">点击单词加入看板</div>'
+      : '<div class="panel-placeholder">点击单词加入看板</div>';
     return;
   }
 
@@ -1506,10 +1524,10 @@ function renderBoard(){
   const toolbarHtml = `
     ${boardBatchProgressHtml()}
     <div class="board-toolbar">
-      <span class="board-count">${boardItems.length} word${boardItems.length > 1 ? 's' : ''}</span>
-      <button id="copyBoardBtn" class="btn secondary" style="font-size:12px;padding:5px 12px;">Copy for Sharing</button>
-      <button id="addAllCardsBtn" class="btn secondary" style="font-size:12px;padding:5px 12px;">Add All to My Cards</button>
-      <button id="clearBoardBtn" class="btn secondary" style="font-size:12px;padding:5px 12px;color:#dc2626;">Clear</button>
+      <span class="board-count">${boardItems.length} 个词</span>
+      <button id="copyBoardBtn" class="btn secondary" style="font-size:12px;padding:5px 12px;">复制分享</button>
+      <button id="addAllCardsBtn" class="btn secondary" style="font-size:12px;padding:5px 12px;">全部加入卡片</button>
+      <button id="clearBoardBtn" class="btn secondary" style="font-size:12px;padding:5px 12px;color:var(--danger);">清空</button>
     </div>
   `;
 
@@ -1570,7 +1588,7 @@ function renderBoard(){
         <div class="board-card-title">
           <span class="board-word">${escapeHtml(b.word)}</span>
           <span class="ipa" data-ipa="${escapeHtml(b.word)}"></span>
-          <button class="speak-btn" data-speak="${escapeHtml(b.word)}" title="Pronounce">🔊</button>
+          <button class="speak-btn" data-speak="${escapeHtml(b.word)}" title="发音">🔊</button>
           ${badge}
           ${isDict ? '<span class="dict-tag">📖 词典</span>' : ''}
         </div>
@@ -1628,7 +1646,7 @@ function renderBoard(){
   });
 
   $('#clearBoardBtn').addEventListener('click', () => {
-    if(confirm('Clear all words from the board?')){ boardItems = []; boardExpanded.clear(); saveBoard(); renderBoard(); }
+    if(confirm('清空看板上的所有单词？')){ boardItems = []; boardExpanded.clear(); saveBoard(); renderBoard(); }
   });
 
   $('#addAllCardsBtn').addEventListener('click', () => {
@@ -1645,8 +1663,8 @@ function renderBoard(){
       }
     });
     setCards(cards);
-    $('#addAllCardsBtn').textContent = `Added ${added} ✓`;
-    setTimeout(() => { $('#addAllCardsBtn').textContent = 'Add All to My Cards'; }, 1500);
+    $('#addAllCardsBtn').textContent = `已加入 ${added} 个 ✓`;
+    setTimeout(() => { $('#addAllCardsBtn').textContent = '全部加入卡片'; }, 1500);
   });
 
   attachAllIpa(main);
@@ -1673,8 +1691,8 @@ function renderBoard(){
     });
     lines.push('#英语学习 #母语者思维 #词汇积累 #EnglishLearning');
     navigator.clipboard.writeText(lines.join('\n')).then(() => {
-      $('#copyBoardBtn').textContent = 'Copied ✓';
-      setTimeout(() => { $('#copyBoardBtn').textContent = 'Copy for Sharing'; }, 1500);
+      $('#copyBoardBtn').textContent = '已复制 ✓';
+      setTimeout(() => { $('#copyBoardBtn').textContent = '复制分享'; }, 1500);
     });
   });
 }
@@ -1719,7 +1737,7 @@ function renderCards(){
   else if(sort === 'alpha') cards.sort((a,b) => a.word.localeCompare(b.word));
   updateStorageInfo();
   if(cards.length === 0){
-    grid.innerHTML = '<div class="empty-state">No cards yet. Go analyze some words!</div>';
+    grid.innerHTML = '<div class="empty-state">还没有卡片，去标注几个词吧！</div>';
     return;
   }
   grid.innerHTML = cards.map(c => {
@@ -1733,11 +1751,11 @@ function renderCards(){
       <div class="wc-head">
         <span class="wc-word">${escapeHtml(c.word)}</span>
         <span class="ipa" data-ipa="${escapeHtml(c.word)}"></span>
-        <button class="speak-btn" data-speak="${escapeHtml(c.word)}" title="Pronounce">🔊</button>
+        <button class="speak-btn" data-speak="${escapeHtml(c.word)}" title="发音">🔊</button>
         ${badge}
       </div>
       <div class="wc-preview">💡 ${escapeHtml(extractCoreImageFirst(c.content))}</div>
-      <div class="wc-toggle" data-action="toggle" data-id="${c.id}">Show full explanation ▾</div>
+      <div class="wc-toggle" data-action="toggle" data-id="${c.id}">展开完整解释 ▾</div>
       <div class="wc-full" id="full-${c.id}">
         <div>${formatExplainHtml(c.content)}</div>
         <div class="wc-source">"${escapeHtml(c.sourceSentence || '')}"</div>
@@ -1751,12 +1769,12 @@ function renderCards(){
       const id = el.dataset.id;
       const full = $('#full-' + id);
       full.classList.toggle('open');
-      el.textContent = full.classList.contains('open') ? 'Hide full explanation ▴' : 'Show full explanation ▾';
+      el.textContent = full.classList.contains('open') ? '收起完整解释 ▴' : '展开完整解释 ▾';
     });
   });
   grid.querySelectorAll('[data-action="delete"]').forEach(el => {
     el.addEventListener('click', () => {
-      if(confirm('Delete this card?')){
+      if(confirm('删除这张卡片？')){
         const id = el.dataset.id;
         setCards(getCards().filter(c => c.id !== id));
         renderCards();
@@ -1778,8 +1796,8 @@ function editCard(id){
   const c = getCards().find(x => x.id === id);
   if(!cardEl || !c || cardEl.querySelector('.wc-edit-area')) return;
   cardEl.innerHTML = `
-    <div style="font-weight:700;margin-bottom:8px;">${escapeHtml(c.word)} <span style="font-size:12px;color:#94a3b8;font-weight:400;">编辑解释（保留 🖼🧠💫 等标题行可维持排版）</span></div>
-    <textarea class="wc-edit-area" style="width:100%;min-height:220px;padding:10px;border:1px solid #93c5fd;border-radius:8px;font-size:13px;line-height:1.6;font-family:inherit;resize:vertical;">${escapeHtml(c.content)}</textarea>
+    <div style="font-weight:700;margin-bottom:8px;">${escapeHtml(c.word)} <span style="font-size:12px;color:var(--text-muted);font-weight:400;">编辑解释（保留 🖼🧠💫 等标题行可维持排版）</span></div>
+    <textarea class="wc-edit-area" style="width:100%;min-height:220px;padding:10px;border:1px solid var(--accent);border-radius:8px;font-size:13px;line-height:1.6;font-family:inherit;resize:vertical;">${escapeHtml(c.content)}</textarea>
     <div style="display:flex;gap:8px;margin-top:8px;">
       <button class="btn" data-eact="save">保存</button>
       <button class="btn secondary" data-eact="cancel">取消</button>
@@ -1806,7 +1824,7 @@ function updateStorageInfo(){
   const mb = bytes / 1048576;
   const el = $('#storageInfo');
   el.textContent = `存储 ${mb.toFixed(1)}/5MB`;
-  el.style.color = mb > 4 ? '#dc2626' : '#94a3b8';
+  el.style.color = mb > 4 ? 'var(--danger)' : 'var(--text-muted)';
   if(mb > 4) el.textContent += ' ⚠️ 请清理缓存';
 }
 $('#cleanCacheBtn').addEventListener('click', () => {
@@ -1819,13 +1837,13 @@ $('#cardSort').addEventListener('change', renderCards);
 
 $('#exportBtn').addEventListener('click', () => {
   const cards = getCards();
-  if(cards.length === 0){ alert('No cards to export.'); return; }
+  if(cards.length === 0){ alert('没有可导出的卡片。'); return; }
   let text = '';
   cards.forEach(c => {
     text += `=== ${c.word} [${c.level || ''}] ===\n`;
-    text += `Saved: ${new Date(c.savedAt).toLocaleString()}\n\n`;
+    text += `保存时间：${new Date(c.savedAt).toLocaleString()}\n\n`;
     text += c.content + '\n\n';
-    text += `Source: "${c.sourceSentence || ''}"\n`;
+    text += `来源："${c.sourceSentence || ''}"\n`;
     text += '\n----------------------------------------\n\n';
   });
   const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
@@ -1841,9 +1859,9 @@ $('#exportBtn').addEventListener('click', () => {
    Anki 导入时选 "Fields separated by: Tab" 并勾选 "Allow HTML in fields" */
 $('#ankiExportBtn').addEventListener('click', () => {
   const cards = getCards();
-  if(cards.length === 0){ alert('No cards to export.'); return; }
+  if(cards.length === 0){ alert('没有可导出的卡片。'); return; }
   const rows = cards.map(c => {
-    const front = `${escapeHtml(c.word)}${c.level ? ' <span style="color:#888;font-size:0.8em;">[' + c.level + ']</span>' : ''}`;
+    const front = `${escapeHtml(c.word)}${c.level ? ' <span style="color:var(--text-muted);font-size:0.8em;">[' + c.level + ']</span>' : ''}`;
     const back = (formatExplainHtml(c.content)
       + (c.sourceSentence ? `<p><i>"${escapeHtml(c.sourceSentence)}"</i></p>` : ''))
       .replace(/\t/g, ' ').replace(/\n/g, '');
@@ -1941,7 +1959,7 @@ function loadCollocations(word){
     const boxNow = $('#collocBox');
     if(!boxNow) return;
     boxNow.innerHTML = `
-      <div style="font-size:12px;color:#64748b;margin:10px 0 5px;border-top:1px solid #f1f5f9;padding-top:10px;">🔗 高频搭配（真实语料）</div>
+      <div style="font-size:12px;color:var(--text-muted);margin:10px 0 5px;border-top:1px solid var(--surface2);padding-top:10px;">🔗 高频搭配（真实语料）</div>
       ${d.after.length ? `<div class="pattern-pills" style="margin-bottom:4px;">${d.after.map(x => `<span class="pattern-pill"><b>${escapeHtml(word)}</b> ${escapeHtml(x)}</span>`).join('')}</div>` : ''}
       ${d.before.length ? `<div class="pattern-pills">${d.before.map(x => `<span class="pattern-pill">${escapeHtml(x)} <b>${escapeHtml(word)}</b></span>`).join('')}</div>` : ''}`;
   };
@@ -2001,9 +2019,9 @@ function weekChartHtml(){
   }
   const max = Math.max(...days.map(x => x.n), 1);
   return `<div style="display:flex;gap:8px;align-items:flex-end;justify-content:center;margin-bottom:14px;">${
-    days.map(x => `<div style="text-align:center;font-size:9.5px;color:#94a3b8;">
-      <div style="font-size:10px;color:${x.n ? '#1d4ed8' : '#cbd5e1'};">${x.n || ''}</div>
-      <div style="width:26px;height:${Math.round(x.n / max * 36) + 3}px;background:${x.n ? '#3b82f6' : '#e2e8f0'};border-radius:3px;margin:1px auto 2px;"></div>${x.lbl}</div>`).join('')
+    days.map(x => `<div style="text-align:center;font-size:9.5px;color:var(--text-muted);">
+      <div style="font-size:10px;color:${x.n ? 'var(--accent-dark)' : 'var(--border)'};">${x.n || ''}</div>
+      <div style="width:26px;height:${Math.round(x.n / max * 36) + 3}px;background:${x.n ? 'var(--accent)' : 'var(--border)'};border-radius:3px;margin:1px auto 2px;"></div>${x.lbl}</div>`).join('')
   }</div>`;
 }
 
@@ -2191,7 +2209,7 @@ function renderReview(){
         ${reviewModeSwitchHtml()}
         <div class="review-card">
           <div style="font-size:16px;font-weight:600;margin-bottom:8px;">${doneMsg}</div>
-          <div style="font-size:13px;color:#64748b;">${nextDueText()}</div>
+          <div style="font-size:13px;color:var(--text-muted);">${nextDueText()}</div>
           ${spellSummaryHtml}
           <div class="review-actions">
             <button class="btn secondary" id="reviewAllBtn">不管到期时间，复习全部 ${total} 张</button>
@@ -2216,7 +2234,7 @@ function renderReview(){
         ${reviewModeSwitchHtml()}
         <div class="review-progress">${reviewIdx + 1} / ${reviewQueue.length}</div>
         <div class="review-card">
-          <div style="font-size:14px;color:#64748b;margin-bottom:8px;">🎧 听发音，拼出这个词</div>
+          <div style="font-size:14px;color:var(--text-muted);margin-bottom:8px;">🎧 听发音，拼出这个词</div>
           <button class="btn secondary" id="spellReplay">🔊 再听一遍</button>
           ${badge}
           ${blanked ? `<div class="review-source">"${escapeHtml(blanked)}"</div>` : ''}
@@ -2277,7 +2295,7 @@ function renderReview(){
       ${reviewModeSwitchHtml()}
       <div class="review-progress">${reviewIdx + 1} / ${reviewQueue.length}</div>
       <div class="review-card">
-        <div class="review-word">${escapeHtml(c.word)} <button class="speak-btn" id="reviewSpeak" title="Pronounce">🔊</button><span class="ipa" data-ipa="${escapeHtml(c.word)}"></span></div>
+        <div class="review-word">${escapeHtml(c.word)} <button class="speak-btn" id="reviewSpeak" title="发音">🔊</button><span class="ipa" data-ipa="${escapeHtml(c.word)}"></span></div>
         ${badge}
         ${c.sourceSentence ? `<div class="review-source">"${escapeHtml(c.sourceSentence)}"</div>` : ''}
         <div class="review-answer" id="reviewAnswer">${formatExplainHtml(c.content)}</div>
@@ -2382,7 +2400,7 @@ $('#matCustomTag').addEventListener('keydown', e => {
 $('#saveMaterialBtn').addEventListener('click', () => {
   const title = $('#matTitle').value.trim();
   const body = $('#matBody').value.trim();
-  if(!title || !body){ alert('Please enter both a title and body text.'); return; }
+  if(!title || !body){ alert('请填写标题和正文。'); return; }
   const materials = getMaterials();
   materials.unshift({
     id: Date.now().toString(),
@@ -2404,7 +2422,7 @@ function renderMaterials(){
   const list = $('#materialList');
   const materials = getMaterials();
   if(materials.length === 0){
-    list.innerHTML = '<div class="empty-state">No materials saved yet.</div>';
+    list.innerHTML = '<div class="empty-state">还没有保存的素材。</div>';
     return;
   }
   list.innerHTML = materials.map(m => {
@@ -2415,11 +2433,11 @@ function renderMaterials(){
       <div class="mat-info">
         <div class="mat-title">${escapeHtml(m.title)}</div>
         <div class="mat-tags">${(m.tags||[]).map(t => `<span class="mat-tag">${escapeHtml(t)}</span>`).join('')}</div>
-        <div class="mat-meta">${wordCount} words · added ${dateStr}</div>
+        <div class="mat-meta">${wordCount} 词 · 添加于 ${dateStr}</div>
       </div>
       <div class="mat-actions">
-        <button class="btn secondary" data-action="analyze" data-id="${m.id}">Analyze →</button>
-        <button class="btn danger" data-action="delete" data-id="${m.id}">Delete</button>
+        <button class="btn secondary" data-action="analyze" data-id="${m.id}">标注 →</button>
+        <button class="btn danger" data-action="delete" data-id="${m.id}">删除</button>
       </div>
     </div>`;
   }).join('');
@@ -2440,7 +2458,7 @@ function renderMaterials(){
   });
   list.querySelectorAll('[data-action="delete"]').forEach(el => {
     el.addEventListener('click', () => {
-      if(confirm('Delete this material?')){
+      if(confirm('删除这份素材？')){
         setMaterials(getMaterials().filter(m => m.id !== el.dataset.id));
         renderMaterials();
         populateMaterialSelect();
