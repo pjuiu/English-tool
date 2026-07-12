@@ -47,6 +47,15 @@
   header h1 { font-size: 18px; font-weight: 600; letter-spacing: .5px; }
   header span { font-size: 13px; color: var(--text-muted); }
   .header-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .hdr-more-wrap { position: relative; }
+  .hdr-more-menu {
+    display: none; position: absolute; top: 100%; right: 0; margin-top: 6px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 4px 14px rgba(74,69,64,0.18); padding: 6px; z-index: 50;
+    flex-direction: column; gap: 4px; min-width: 96px;
+  }
+  .hdr-more-menu.open { display: flex; }
+  .hdr-more-menu .btn-sm { width: 100%; text-align: left; }
 
   /* ── API Key Panel ── */
   #api-panel {
@@ -112,6 +121,12 @@
     max-height: calc(100vh - 20px);
     overflow-y: auto;
     padding-bottom: 16px;
+  }
+  /* 四个面板本来是完全平权排列，新用户不知道先看哪个——加一行一次性提示 + 面板标题编号，
+     不做成根据进度动态高亮的复杂版本，成本低先解决"完全没有顺序感"的问题 */
+  .rp-step-hint {
+    font-size: 12px; color: var(--text-muted); background: var(--surface2);
+    border-radius: 8px; padding: 6px 10px; margin-bottom: 10px;
   }
   /* 字幕列表 = 主操作区（视频正下方，全宽），占据剩余视野 */
   #main-left #subtitle-list-wrap { max-height: 62vh; }
@@ -210,6 +225,8 @@
   .btn:hover { background: var(--accent-light); border-color: var(--accent); }
   .btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .btn.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+  .btn:disabled, .btn-sm:disabled { opacity: .5; cursor: not-allowed; }
+  .btn:disabled:hover { background: var(--surface2); border-color: var(--border); }
 
   /* Speed buttons */
   .speed-btns { display: flex; gap: 4px; }
@@ -365,10 +382,17 @@
        用 overflow:hidden 不会有这个副作用） */
   }
   #sv-progress-bar {
-    height: 4px; background: var(--border); border-radius: 2px; cursor: pointer;
+    /* 可点/可拖热区放大到 20px（手机触控建议范围），视觉上的细条用 ::before 单独画一条
+       居中的 4px 轨道——这样看起来还是细条，但实际能点/能拖的范围比视觉粗细大得多 */
+    height: 20px; position: relative; display: flex; align-items: center;
+    background: transparent; cursor: pointer;
     touch-action: none; margin-bottom: 8px;
   }
-  #sv-progress-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; pointer-events: none; }
+  #sv-progress-bar::before {
+    content: ''; position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+    height: 4px; background: var(--border); border-radius: 2px;
+  }
+  #sv-progress-fill { position: relative; z-index: 1; height: 4px; width: 0%; background: var(--accent); border-radius: 2px; pointer-events: none; }
   #sv-controls-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; overflow: hidden; }
   .sv-ctrl-icon {
     background: none; border: none; color: var(--text); cursor: pointer;
@@ -573,6 +597,12 @@
   #dict-pop .dp-syn { display: inline-block; background: #f0ede8; border-radius: 5px; padding: 1px 8px; margin: 2px 3px 0 0; font-size: 12px; color: #555; }
   #dict-pop .dp-row { margin-top: 8px; display: flex; gap: 8px; }
   #dict-pop .dp-close { position: absolute; top: 8px; right: 10px; border: none; background: none; cursor: pointer; color: #999; font-size: 14px; }
+  /* 指向被点词的小三角——跟 #dict-pop 是独立的兄弟元素而不是子元素，因为 #dict-pop 的内容
+     每次查询都会被整个 innerHTML 替换掉，放在里面的话箭头会跟着一起被冲掉 */
+  #dp-arrow {
+    position: fixed; z-index: 10001; display: none; width: 0; height: 0;
+    border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 8px solid #fff;
+  }
 
   /* ── Video Caption (视频内嵌字幕) ── */
   #video-wrap { position: relative; }
@@ -892,13 +922,17 @@
 
 <header>
   <div>
-    <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260712d</span>
+    <h1 title="Shadow Reading Lab · v20260712e">🎙 影子跟读实验室</h1>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
-    <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
-    <button class="btn-sm" onclick="document.getElementById('restore-input').click()">📥 恢复</button>
+    <div class="hdr-more-wrap">
+      <button class="btn-sm" onclick="toggleHeaderMoreMenu()">⋯</button>
+      <div id="hdr-more-menu" class="hdr-more-menu">
+        <button class="btn-sm" onclick="backupShadowData()">💾 备份</button>
+        <button class="btn-sm" onclick="document.getElementById('restore-input').click()">📥 恢复</button>
+      </div>
+    </div>
     <input type="file" id="restore-input" accept=".json" style="display:none" onchange="restoreShadowData(event)" />
     <button class="btn-sm" onclick="toggleApiPanel()">API 设置</button>
   </div>
@@ -939,7 +973,7 @@
   <input type="checkbox" id="url-want-video" /> 🎬 下载画面（视频链接需要看画面时勾选；仅通过本地下载服务的链接生效，勾选后下载更慢）
 </label>
 <div id="url-status-line"></div>
-<div id="url-note">Apple Podcasts 和普通直链可直接解析播放；YouTube / B站 / Spotify 等需要下载的链接，先双击 shadow_reader 里的「启动.bat」（留着后台跑，不用打开那个网页），再在这里粘贴链接即可自动下载导入——没启动的话会弹出图文指引。</div>
+<div id="url-note">粘贴链接后这里会按识别到的平台显示对应的准备步骤。</div>
 <div id="diag-panel">
   <div id="diag-head" onclick="toggleDiagPanel()">🔧 诊断信息（遇到问题时把这里的内容发给我）<span id="diag-toggle-ico">▾</span></div>
   <pre id="diag-log"></pre>
@@ -1007,7 +1041,7 @@
       <button class="btn" id="pr-rec" onclick="practiceRecord()">🎙 跟读录音 <small>R</small></button>
       <button class="btn" id="pr-mine" onclick="practicePlayMine()" disabled>▶ 我的</button>
       <button class="btn" id="pr-cmp" onclick="practiceCompare()" disabled>🔁 对比 <small>C</small></button>
-      <button class="btn" id="pr-score-btn" onclick="scorePractice()" disabled title="用本地 Whisper 识别你的录音，和原句逐词对比打分（免费）">📊 评分</button>
+      <button class="btn" id="pr-score-btn" onclick="scorePractice()" disabled title="识别你的录音并和原句逐词对比打分；已配置 Whisper API Key 则用 API（手机端推荐），否则用本地模型（免费但手机端可能跑不动）">📊 评分</button>
       <button class="btn" id="pr-transcribe" onclick="transcribeCurrentSegment()" style="display:none;background:var(--accent2);color:#fff;border-color:var(--accent2);" title="只转写这个片段（1-3分钟，免费）：生成后片段内即可逐句跟读、逐词高亮、评分">📝 转写此片段</button>
       <button class="btn" onclick="practicePrev()">⏮ 上一句 <small>P</small></button>
       <button class="btn" onclick="practiceNext()">⏭ 下一句 <small>N</small></button>
@@ -1069,8 +1103,10 @@
       <button class="sv-tab" data-tab="dictation" onclick="switchSimpleTab('dictation')">听写</button>
     </div>
     <div id="sv-sub-tab" class="sv-tab-content">
-      <div style="text-align:right;margin-bottom:6px;">
-        <button class="btn" id="sv-fav-filter-btn" style="padding:3px 10px;font-size:12px;" onclick="toggleFavOnly()">⭐ 只看收藏</button>
+      <div style="display:flex;gap:6px;margin-bottom:6px;">
+        <input type="text" id="sv-sub-search-input" placeholder="🔍 搜索字幕…" oninput="setSubSearch(this.value)"
+          style="flex:1;min-width:0;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--text);" />
+        <button class="btn" id="sv-fav-filter-btn" style="padding:3px 10px;font-size:12px;flex-shrink:0;" onclick="toggleFavOnly()">⭐ 只看收藏</button>
       </div>
       <div id="sv-sub-list"></div>
     </div>
@@ -1122,6 +1158,8 @@
       <button class="btn" id="fav-filter-btn" style="padding:2px 8px;font-size:11px;float:right;" onclick="toggleFavOnly()">⭐ 收藏</button>
       <button class="btn" id="fav-export-btn" style="padding:2px 8px;font-size:11px;float:right;margin-right:4px;display:none;" onclick="exportFavs()">⬇ 导出</button>
     </h3>
+    <input type="text" id="sub-search-input" placeholder="🔍 搜索字幕…" oninput="setSubSearch(this.value)"
+      style="width:100%;box-sizing:border-box;padding:6px 10px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--text);" />
     <div id="subtitle-list"></div>
   </div>
 
@@ -1129,9 +1167,11 @@
 
 <div id="main-right">
 
+  <div class="rp-step-hint">💡 建议按顺序：① 字幕生成 → ② 播放设置 → ③ 选段剪切 → ④ 跟读录音</div>
+
   <!-- Transcribe Panel -->
   <div id="transcribe-panel">
-    <h3>字幕生成</h3>
+    <h3>① 字幕生成</h3>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
       <button class="btn" id="local-transcribe-btn" onclick="doLocalTranscribe()" title="浏览器内本地运行 Whisper 模型，零费用；首次使用需下载模型（仅一次）">🆓 本地转写（免费·英文）</button>
       <button class="btn" id="transcribe-btn" onclick="doTranscribe()">▶ API 转写</button>
@@ -1144,6 +1184,7 @@
       </label>
       <button class="btn" onclick="loadSubtitleFile()">导入 SRT / VTT / JSON</button>
       <button class="btn" onclick="exportSRT()">⬇ 导出 SRT</button>
+      <button class="btn" onclick="exportSubtitlesJSON()" title="保留 Whisper 转写出的词级时间戳，重新导入后逐词高亮仍是精确模式（不会退化成估算）">⬇ 导出 JSON（含词级时间戳）</button>
       <button class="btn" onclick="doSilenceSplit()" title="不转写也能练：按静音间隙自动把音频切成小段，加入选段剪切列表">🔇 静音切分</button>
       <select class="mini-select" id="vad-mode-sel" title="影视剧/综艺有背景音乐和音效，需要更高的人声判定阈值">
         <option value="tv">影视剧/带背景音</option>
@@ -1160,7 +1201,7 @@
 
   <!-- 播放与字幕设置（紧跟在字幕生成后面：生成字幕后马上配置怎么播放/显示） -->
   <div id="sub-mode-wrap">
-    <h3>⚙ 字幕与播放设置</h3>
+    <h3>② ⚙ 字幕与播放设置</h3>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
       <span class="ctrl-label">字幕</span>
       <button class="btn" id="sub-none" onclick="setSubMode('none')">无</button>
@@ -1187,10 +1228,9 @@
         <option value="pause">⏸ 每句停一下</option>
         <option value="loop">🔁 单句循环</option>
       </select>
-      <select class="mini-select" id="pause-resume-sel" style="display:none;" title="逐句暂停后：手动按空格继续，或留出跟读时间后自动继续">
-        <option value="manual">暂停后手动继续</option>
-        <option value="auto">停 1.5×句长后自动继续</option>
-      </select>
+      <label id="pause-resume-toggle" style="display:none;align-items:center;gap:5px;font-size:13px;color:var(--text);cursor:pointer;" title="逐句暂停后：手动按空格继续，或留出跟读时间后自动继续下一句">
+        <input type="checkbox" id="pause-resume-chk" /> ⏱ 自动继续（1.5×句长后播下一句）
+      </label>
     </div>
     <div id="translate-status" style="font-size:12px;color:var(--text-muted);margin-top:6px;"></div>
   </div>
@@ -1211,7 +1251,7 @@
 
   <!-- Cut Segments -->
   <div id="cut-panel">
-    <h3>✂ 选段剪切（切成小段循环跟读，⬇ 可导出为文件） <span id="cut-status" style="font-weight:400;"></span></h3>
+    <h3>③ ✂ 选段剪切（切成小段循环跟读，⬇ 可导出为文件） <span id="cut-status" style="font-weight:400;"></span></h3>
     <div class="cut-row">
       <span class="ctrl-label">自动等分</span>
       <button class="btn" onclick="splitEqual(3)">每 3 分钟</button>
@@ -1243,7 +1283,7 @@
 
   <!-- Shadow Recording -->
   <div id="record-panel">
-    <h3>跟读录音（选好区间 → 听原声 → 录自己 → 对比）</h3>
+    <h3>④ 跟读录音（选好区间 → 听原声 → 录自己 → 对比）</h3>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
       <button class="btn" id="rec-btn" onclick="toggleRecord()">🎙 开始录音</button>
       <span style="font-size:12px;color:var(--text-muted);">录音自动保存在本机，下次打开同一文件可回放</span>
@@ -1276,6 +1316,7 @@
 
 <!-- 查词弹窗 -->
 <div id="dict-pop"></div>
+<div id="dp-arrow"></div>
 
 <script>
 // ═══════════════════════════════════════════════════════
@@ -1284,6 +1325,17 @@
 let ws = null;               // WaveSurfer instance
 let wsRegions = null;        // Regions plugin
 let currentRegion = null;    // active drag region
+let lastPosSaveT = -999;     // 播放位置持久化节流用
+function savePlaybackPos(t) {
+  if (!currentFile) return;
+  try {
+    localStorage.setItem(posKey(), JSON.stringify({
+      t,
+      rs: currentRegion ? currentRegion.start : undefined,
+      re: currentRegion ? currentRegion.end : undefined,
+    }));
+  } catch (e) {}
+}
 let subtitles = [];          // [{start, end, text, zh?}]
 let subMode = 'en';          // 'none' | 'en' | 'bilingual'
 let isLooping = false;
@@ -1334,6 +1386,19 @@ let karaokeEnabled = localStorage.getItem('shadow_karaoke') !== '0';   // 逐词
 let skipGaps = false;        // 跳过句间空白
 let favs = new Set();        // 收藏的句子下标
 let favOnly = false;         // 只看收藏
+let subSearchQuery = '';     // 字幕列表搜索关键词（全屏/简洁模式共用同一份过滤结果）
+let subSearchTimer = null;
+function setSubSearch(v) {
+  clearTimeout(subSearchTimer);
+  subSearchTimer = setTimeout(() => {
+    subSearchQuery = v.trim().toLowerCase();
+    // 两个模式各有一份输入框，保持显示内容一致（切换模式时不会看到搜索词"消失"）
+    const a = document.getElementById('sub-search-input'), b = document.getElementById('sv-sub-search-input');
+    if (a && a.value !== v) a.value = v;
+    if (b && b.value !== v) b.value = v;
+    renderSubtitleList();
+  }, 150);
+}
 let kwSets = [];             // 当前句的词元素缓存 [subEnSpans, rowSpans]（字幕栏 + 列表行，按单条字幕驱动）
 let kwPrevIdx = -1;
 let karaokeRaf = null;
@@ -1652,6 +1717,8 @@ async function waveformFallback(force) {
 // 很多播客托管商每次请求会动态插入不同广告，同一集的下载字节数会变，
 // 用文件大小当 key 会导致"同一个链接重新打开"匹配不到之前存的字幕/片段，看起来像被覆盖了
 function fileKey() { return (currentFile && currentFile._sourceKey) || (currentFileName + '_' + (currentFile ? currentFile.size : '')); }
+// 播放进度 + AB 选区持久化 key，同一套按文件存取的模式（subsKey/cutsKey）
+function posKey() { return 'shadow_pos_' + fileKey(); }
 // ffmpeg 虚拟文件系统里缓存的文件字节用这个 key 判断要不要重新写入，跟上面 fileKey() 不是一回事——
 // fileKey() 为了"同一个播客链接每次广告不同也能续上字幕"故意不看文件大小；但这里恰恰相反：
 // 只要实际字节变了（哪怕 fileKey() 判断是"同一个文件"，比如重新下载后换了编码/画质），
@@ -1816,6 +1883,28 @@ function loadFile(file) {
       renderCutList();
     }
   })();
+  // 恢复上次的播放位置 + AB 选区——duration 要等媒体元数据/波形解码完才有，
+  // 轮询等待（跟 heavy 模式下等真实时长的兜底轮询是同一个思路），换文件/组件卸载靠 fkPos 比对提前退出
+  lastPosSaveT = -999;
+  const fkPos = posKey();
+  (function tryRestorePos(triesLeft) {
+    if (posKey() !== fkPos) return;   // 期间换了文件
+    if (duration > 0) {
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(fkPos) || 'null'); } catch (e) {}
+      if (saved) {
+        if (typeof saved.t === 'number' && saved.t > 1 && saved.t < duration - 1) seekSec(saved.t);
+        if (typeof saved.rs === 'number' && typeof saved.re === 'number' && saved.re > saved.rs && wsRegions) {
+          if (currentRegion) currentRegion.remove();
+          currentRegion = wsRegions.addRegion({ start: saved.rs, end: saved.re, color: 'rgba(138,158,138,0.25)', drag: true, resize: true });
+          updateRegionInfo();
+        }
+      }
+      return;
+    }
+    if (triesLeft <= 0) return;   // 时长一直没准备好，放弃（跟正常打开一样从头开始）
+    setTimeout(() => tryRestorePos(triesLeft - 1), 300);
+  })(100);
   activeCutLoop = -1;
   cutMarkA = cutMarkB = null;
   updateCutMarkInfo();
@@ -1831,6 +1920,9 @@ function loadFile(file) {
   kwPrevIdx = -1;
   clearRegion();
   favOnly = false;
+  subSearchQuery = '';
+  if (document.getElementById('sub-search-input')) document.getElementById('sub-search-input').value = '';
+  if (document.getElementById('sv-sub-search-input')) document.getElementById('sv-sub-search-input').value = '';
   loadFavs();
   document.getElementById('fav-filter-btn').classList.remove('active');
   document.getElementById('fav-export-btn').style.display = 'none';
@@ -1983,6 +2075,7 @@ function initWaveSurfer(file, pre) {
     updateTimeDisplay(t);
     updateProgressBar(t);
     updateCurrentSubtitle(t);
+    if (t - lastPosSaveT > 3) { lastPosSaveT = t; savePlaybackPos(t); }
     if (abState) {
       if (t >= abState.end - 0.05) {
         ws.pause();
@@ -2030,7 +2123,7 @@ function initWaveSurfer(file, pre) {
       if (pauseSegEnd !== null && t >= pauseSegEnd - 0.05) {
         ws.pause();
         // 自动继续模式：留出 1.5×句长的跟读时间后自动播下一句
-        if (document.getElementById('pause-resume-sel').value === 'auto') {
+        if (document.getElementById('pause-resume-chk').checked) {
           const b = currentBoundsAt(Math.max(pauseSegEnd - 0.2, 0));
           const waitMs = b ? Math.max((b[1] - b[0]) * 1500, 1500) : 2500;
           clearTimeout(pauseResumeTimer);
@@ -2064,6 +2157,7 @@ function initWaveSurfer(file, pre) {
     document.getElementById('play-btn').textContent = '▶ 播放';
     svSetPlayIcon(false);
     if (recAudio.paused) markPlayingBtn(null);   // 原声播完且没有接续录音时，清除按钮高亮
+    savePlaybackPos(ws.getCurrentTime());
   });
 }
 /* 简洁模式底部栏的播放/暂停图标——独立于桌面 #play-btn 的文字按钮，两边状态同步 */
@@ -2237,6 +2331,7 @@ function bindDraggableProgressBar(barId, fillId) {
 }
 bindDraggableProgressBar('progress-bar', 'progress-fill');
 bindDraggableProgressBar('sv-progress-bar', 'sv-progress-fill');
+window.addEventListener('beforeunload', () => { if (ws) savePlaybackPos(ws.getCurrentTime()); });
 
 /* 录音回放的按钮状态：正在播放的按钮高亮，一眼可见点击是否生效 */
 let playingBtn = null;
@@ -2284,7 +2379,13 @@ document.addEventListener('click', e => {
   if (e.target.closest('#sv-controls')) return;
   document.getElementById('sv-speed-picker') && document.getElementById('sv-speed-picker').classList.remove('open');
   document.getElementById('sv-more-panel') && document.getElementById('sv-more-panel').classList.remove('open');
+  if (!e.target.closest('.hdr-more-wrap')) {
+    document.getElementById('hdr-more-menu') && document.getElementById('hdr-more-menu').classList.remove('open');
+  }
 });
+function toggleHeaderMoreMenu() {
+  document.getElementById('hdr-more-menu').classList.toggle('open');
+}
 /* 单句循环：复用桌面的播放模式下拉（continuous/loop），图标按钮只是换一套触发方式，
    两边状态互相同步——切回完整模式时下拉框的显示值也是对的 */
 function svToggleLoopMode() {
@@ -2875,15 +2976,22 @@ function dpLemma(w) {
 async function showDictPopup(word, sentence, x, y) {
   const pop = document.getElementById('dict-pop');
   pop.style.display = 'block';
-  pop.style.left = Math.min(x, window.innerWidth - 340) + 'px';
-  pop.style.top = Math.min(y + 12, window.innerHeight - 300) + 'px';
+  const popLeft = Math.min(x, window.innerWidth - 340);
+  const popTop = Math.min(y + 12, window.innerHeight - 300);
+  pop.style.left = popLeft + 'px';
+  pop.style.top = popTop + 'px';
+  // 箭头指向被点的词：水平位置跟点击的 x 坐标走，clamp 在弹窗自身宽度范围内不超出弹窗边界
+  const arrow = document.getElementById('dp-arrow');
+  arrow.style.display = 'block';
+  arrow.style.left = (popLeft + Math.min(Math.max(x - popLeft, 16), 320 - 16) - 8) + 'px';
+  arrow.style.top = (popTop - 8) + 'px';
   pop.innerHTML = '<div style="color:#888;">📖 查询中…</div>';
   await ensureShadowDicts();
   const w = word.toLowerCase();
   const key = (window.WN_DICT && window.WN_DICT[w]) ? w : dpLemma(w);
   const entry = key && window.WN_DICT ? window.WN_DICT[key] : null;
   const ipa = window.IPA_DICT ? (window.IPA_DICT[key || w] || window.IPA_DICT[w] || '') : '';
-  let html = `<button class="dp-close" onclick="document.getElementById('dict-pop').style.display='none'">✕</button>
+  let html = `<button class="dp-close" onclick="document.getElementById('dict-pop').style.display='none';document.getElementById('dp-arrow').style.display='none'">✕</button>
     <span class="dp-word">${escHtml(key || word)}</span>${ipa ? `<span class="dp-ipa">/${escHtml(ipa)}/</span>` : ''}
     <button class="btn" style="padding:1px 7px;font-size:12px;margin-left:6px;" onclick="speakWord('${escHtml(key || word)}')">🔊</button>`;
   if (key && key !== w) html += `<span style="color:#999;font-size:11px;margin-left:6px;">← ${escHtml(word)}</span>`;
@@ -2919,6 +3027,7 @@ document.addEventListener('click', e => {
   const pop = document.getElementById('dict-pop');
   if (pop.style.display === 'block' && !pop.contains(e.target) && !e.target.closest('.kw') && !e.target.closest('.lookup-w')) {
     pop.style.display = 'none';
+    document.getElementById('dp-arrow').style.display = 'none';
   }
 });
 
@@ -3075,6 +3184,7 @@ function renderSubtitleList() {
   const counts = getPracticeCounts();
   subtitles.forEach((s, i) => {
     if (favOnly && !favs.has(i)) return;
+    if (subSearchQuery && !s.text.toLowerCase().includes(subSearchQuery)) return;
     const n = counts[i] || 0;
     const div = document.createElement('div');
     div.className = 'sub-item' + (n > 0 ? ' practiced' : '');
@@ -3148,6 +3258,7 @@ function renderSvSubList() {
   list.innerHTML = '';
   subtitles.forEach((s, i) => {
     if (favOnly && !favs.has(i)) return;
+    if (subSearchQuery && !s.text.toLowerCase().includes(subSearchQuery)) return;
     const div = document.createElement('div');
     div.className = 'sub-item sv-card';
     div.dataset.si = i;
@@ -3651,7 +3762,9 @@ function onSubFileLoad(e) {
       try {
         const data = JSON.parse(text);
         if (Array.isArray(data)) {
-          subtitles = data.map(s => ({ start: +s.start, end: +s.end, text: s.text || '', zh: s.zh || '' }));
+          // words 字段（词级时间戳）要一起带回来，否则导出的扩展 JSON 重新导入等于白导——
+          // 逐词高亮会退化成按字符比例估算的模式，精度跟 SRT 导入没区别
+          subtitles = data.map(s => ({ start: +s.start, end: +s.end, text: s.text || '', zh: s.zh || '', words: Array.isArray(s.words) && s.words.length ? s.words : undefined }));
         }
       } catch(err) { diagLog(`JSON 解析失败: ${err.message}`); showToast('JSON 格式错误'); return; }
     } else {
@@ -3884,6 +3997,15 @@ function exportSRT() {
   showToast('SRT 已导出');
 }
 
+// SRT 只有句级时间戳，Whisper 转写出的词级时间戳（驱动逐词高亮）会丢——
+// 导出这份完整 JSON（含 words 字段）配合下面导入逻辑的对应修复，可以完整往返不丢精度
+function exportSubtitlesJSON() {
+  if (subtitles.length === 0) { showToast('暂无字幕可导出，请先转写或导入'); return; }
+  const blob = new Blob([JSON.stringify(subtitles, null, 1)], { type: 'application/json;charset=utf-8' });
+  downloadBlob(blob, (currentFileName.replace(/\.[^.]+$/, '') || 'subtitles') + '.json');
+  showToast('JSON 已导出（含词级时间戳）');
+}
+
 // ═══════════════════════════════════════════════════════
 //  SENTENCE NAVIGATION (逐句跟读)
 // ═══════════════════════════════════════════════════════
@@ -3963,7 +4085,7 @@ function setPlayMode(mode) {
   pauseSegEnd = null;
   loopSegRange = null;
   clearTimeout(pauseResumeTimer);
-  document.getElementById('pause-resume-sel').style.display = sentencePause ? '' : 'none';
+  document.getElementById('pause-resume-toggle').style.display = sentencePause ? 'flex' : 'none';
   // "每句停一下"/"单句循环" 需要句子边界数据（字幕或剪切片段）才能生效，
   // 否则选了也没有任何变化——之前用户遇到的"跳过空白没反应"就是同一个根因
   const hasBounds = subtitles.length > 0 || cutSegments.length > 0;
@@ -4466,15 +4588,25 @@ async function scorePractice() {
   btn.disabled = true;
   const resBox = document.getElementById('pr-score-result');
   try {
-    setPracticeStatus('📊 正在用本地模型识别你的录音…（首次需下载模型）');
-    const asr = await ensureLocalWhisper(p => {
-      if (p && p.status === 'progress' && p.file && p.file.endsWith('.onnx')) {
-        setPracticeStatus(`⏳ 下载识别模型 ${Math.round(p.progress || 0)}%…`);
-      }
-    });
-    const audio = await fileTo16kMono(practice.recBlob);
-    const out = await asr(audio, { no_repeat_ngram_size: 3 });
-    const hypText = (out.text || '').trim();
+    const whisperApiKey = getWhisperKey();
+    let hypText;
+    if (whisperApiKey) {
+      // 有配置 API Key 时优先用 API 识别——手机端跑不动本地 Whisper 模型，评分按钮之前等于摆设
+      setPracticeStatus('📊 正在用 Whisper API 识别你的录音…');
+      const recFile = new File([practice.recBlob], 'recording.webm', { type: practice.recBlob.type || 'audio/webm' });
+      const segs = await doTranscribeAPI(recFile, whisperApiKey, getWhisperUrl());
+      hypText = segs.map(s => s.text).join(' ').trim();
+    } else {
+      setPracticeStatus('📊 正在用本地模型识别你的录音…（首次需下载模型）');
+      const asr = await ensureLocalWhisper(p => {
+        if (p && p.status === 'progress' && p.file && p.file.endsWith('.onnx')) {
+          setPracticeStatus(`⏳ 下载识别模型 ${Math.round(p.progress || 0)}%…`);
+        }
+      });
+      const audio = await fileTo16kMono(practice.recBlob);
+      const out = await asr(audio, { no_repeat_ngram_size: 3 });
+      hypText = (out.text || '').trim();
+    }
     const refWordsRaw = practice.text.split(/\s+/).filter(Boolean);
     const refWords = normWords(practice.text);
     const hypWords = normWords(hypText);
@@ -4784,11 +4916,21 @@ function detectPlatform(url) {
 }
 
 const PLATFORM_ICON = { youtube: '🔴 YouTube', spotify: '🟢 Spotify', apple_podcasts: '🎧 Apple Podcasts', direct: '🔗 直链', other: '🌐' };
+// 按检测到的平台显示对应的一句话提示，而不是不管输入什么都平铺一整段——第一次打开根本读不完
+const PLATFORM_NOTE = {
+  youtube: '需要先双击 shadow_reader 里的「启动.bat」（留着后台跑，不用打开那个网页），再粘贴链接即可自动下载导入。',
+  spotify: '需要先双击 shadow_reader 里的「启动.bat」（留着后台跑，不用打开那个网页），再粘贴链接即可自动下载导入。',
+  apple_podcasts: '可直接解析播放，不需要额外准备。',
+  direct: '直链音视频文件，可直接解析播放。',
+  other: '多数站点（如 B 站）也需要先双击 shadow_reader 里的「启动.bat」再粘贴链接下载导入，没启动的话会弹出图文指引。',
+};
+const URL_NOTE_DEFAULT = '粘贴链接后这里会按识别到的平台显示对应的准备步骤。';
 
 function updatePlatformBadge() {
   const url = document.getElementById('media-url').value.trim();
   const p = detectPlatform(url);
   document.getElementById('url-platform-badge').textContent = p ? PLATFORM_ICON[p] : '';
+  document.getElementById('url-note').textContent = p ? (PLATFORM_NOTE[p] || PLATFORM_NOTE.other) : URL_NOTE_DEFAULT;
 }
 
 function setUrlStatus(text) { document.getElementById('url-status-line').textContent = text; }
@@ -5625,7 +5767,7 @@ async function resetAll() {
   pauseSegEnd = null;
   lastActiveSub = null;
   document.getElementById('play-mode-sel').value = 'continuous';
-  document.getElementById('pause-resume-sel').style.display = 'none';
+  document.getElementById('pause-resume-toggle').style.display = 'none';
   document.getElementById('sv-loop-btn').classList.remove('active');
   cutSegments = [];
   activeCutLoop = -1;
