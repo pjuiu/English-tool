@@ -357,28 +357,46 @@
     background: var(--surface); border-top: 1px solid var(--border);
     box-shadow: 0 -2px 10px rgba(74,69,64,0.12);
     padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+    overflow-x: hidden;   /* 保险：万一某个子元素撑宽了，也不会连累整个页面出现横向滚动条 */
   }
   #sv-progress-bar {
     height: 4px; background: var(--border); border-radius: 2px; cursor: pointer;
     touch-action: none; margin-bottom: 8px;
   }
   #sv-progress-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; pointer-events: none; }
-  #sv-controls-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+  #sv-controls-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; overflow: hidden; }
   .sv-ctrl-icon {
     background: none; border: none; color: var(--text); cursor: pointer;
     font-size: 20px; line-height: 1; padding: 6px; border-radius: 8px;
-    display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1;
+    display: flex; align-items: center; justify-content: center; gap: 2px;
+    flex: 1; min-width: 0;   /* flex 子项默认不能压缩到比内容还窄，之前上一句/下一句带文字说明时
+                                最容易撑宽整行——把这个放开，加上下面去掉说明文字，两道保险一起上 */
     transition: background .15s;
   }
   .sv-ctrl-icon:hover, .sv-ctrl-icon.active { background: var(--accent-light); }
   .sv-ctrl-icon #sv-speed-label { font-size: 14px; font-weight: 600; }
-  .sv-ctrl-caption { font-size: 9px; color: var(--text-muted); }
+  /* 播放/暂停：CSS 画三角形和双竖条，不用 Unicode 字符——字体渲染出来的"▶"视觉重心天然偏一边，
+     不同设备偏移程度还不一样，肉眼很容易看出没居中；纯几何图形配合 flex 居中是像素级精确的 */
   .sv-ctrl-play {
     flex: 0 0 auto; width: 52px; height: 52px; border-radius: 50%;
-    background: var(--accent); color: #fff; font-size: 22px;
+    background: var(--accent); color: #fff;
     box-shadow: 0 2px 8px rgba(74,69,64,0.25);
   }
   .sv-ctrl-play:hover { background: var(--accent-dark); }
+  .sv-play-glyph {
+    display: inline-block; width: 0; height: 0;
+    border-style: solid; border-width: 9px 0 9px 15px;
+    border-color: transparent transparent transparent #fff;
+    margin-left: 3px;   /* 三角形本身视觉重心偏左，补一点左边距抵消掉 */
+  }
+  .sv-pause-glyph { display: none; width: 14px; height: 18px; position: relative; }
+  .sv-pause-glyph::before, .sv-pause-glyph::after {
+    content: ''; position: absolute; top: 0; width: 4px; height: 18px; background: #fff; border-radius: 1px;
+  }
+  .sv-pause-glyph::before { left: 0; }
+  .sv-pause-glyph::after { right: 0; }
+  .sv-ctrl-play.is-playing .sv-play-glyph { display: none; }
+  .sv-ctrl-play.is-playing .sv-pause-glyph { display: block; }
   /* 倍速/更多 弹出面板：贴在操作栏上方展开，不挤占常驻图标行的空间 */
   .sv-popover {
     display: none; position: absolute; left: 10px; right: 10px; bottom: 100%;
@@ -388,7 +406,15 @@
   .sv-popover.open { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
   #sv-speed-picker.open { display: flex; }
   #sv-controls .speed-btn { padding: 8px 14px; font-size: 14px; }
-  .sv-more-panel .btn { font-size: 13px; }
+  /* "更多"面板里的开关按钮：跟图标行的"开启态"（浅色调底）用同一套视觉语言，不借用桌面
+     .btn.active 那种实心主题色+白字——两种"开启"样式混在同一个操作栏里，看着就是颜色不统一 */
+  .sv-more-btn {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 12px; font-size: 13px; color: var(--text); cursor: pointer;
+    transition: background .15s;
+  }
+  .sv-more-btn:hover { background: var(--accent-light); border-color: var(--accent); }
+  .sv-more-btn.active { background: var(--accent-light); border-color: var(--accent); }
   .sv-placeholder { text-align: center; padding: 40px 10px; color: var(--text-muted); font-size: 13px; }
   .sv-card {
     background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
@@ -839,7 +865,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260712a</span>
+    <span>Shadow Reading Lab · v20260712b</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -1035,14 +1061,12 @@
       <button class="sv-ctrl-icon" onclick="svToggleSpeedPicker()" title="倍速">
         <span id="sv-speed-label">1×</span>
       </button>
-      <button class="sv-ctrl-icon blind-toggle-btn" id="sv-blind-btn" onclick="toggleBlind()" title="盲听：先不看字幕">👁</button>
-      <button class="sv-ctrl-icon" onclick="prevSentence()" title="上一句">
-        <span class="sv-ctrl-glyph">⏮</span><span class="sv-ctrl-caption">上一句</span>
+      <button class="sv-ctrl-icon blind-toggle-btn" id="sv-blind-btn" onclick="toggleBlind()" title="盲听：先不看字幕">🙈</button>
+      <button class="sv-ctrl-icon" onclick="prevSentence()" title="上一句">⏮</button>
+      <button class="sv-ctrl-icon sv-ctrl-play" id="sv-play-btn" onclick="togglePlay()" title="播放/暂停">
+        <span class="sv-play-glyph"></span><span class="sv-pause-glyph"></span>
       </button>
-      <button class="sv-ctrl-icon sv-ctrl-play" id="sv-play-btn" onclick="togglePlay()" title="播放/暂停">▶</button>
-      <button class="sv-ctrl-icon" onclick="nextSentence()" title="下一句">
-        <span class="sv-ctrl-glyph">⏭</span><span class="sv-ctrl-caption">下一句</span>
-      </button>
+      <button class="sv-ctrl-icon" onclick="nextSentence()" title="下一句">⏭</button>
       <button class="sv-ctrl-icon" id="sv-loop-btn" onclick="svToggleLoopMode()" title="单句循环">🔁</button>
       <button class="sv-ctrl-icon" onclick="svToggleMorePanel()" title="更多">⋯</button>
     </div>
@@ -1054,13 +1078,13 @@
       <button class="speed-btn" data-speed="1.5" onclick="setSpeed(1.5)">1.5×</button>
     </div>
     <div id="sv-more-panel" class="sv-popover sv-more-panel">
-      <button class="btn" onclick="seekDelta(-5)">⏪ -5s</button>
-      <button class="btn" onclick="seekDelta(5)">⏩ +5s</button>
-      <button class="btn" onclick="replayCurrentSentence()">🔂 重播本句</button>
-      <button class="btn" onclick="enterPracticeHere()">🎤 逐句跟读</button>
-      <button class="btn auto-shadow-toggle-btn" id="sv-auto-shadow-btn" onclick="toggleAutoShadow()">🤖 自动跟读</button>
-      <button class="btn active karaoke-toggle-btn" id="sv-karaoke-btn" onclick="toggleKaraoke()">🎯 逐词高亮</button>
-      <button class="btn skip-gap-toggle-btn" id="sv-skip-gap-btn" onclick="toggleSkipGap()">⏩ 跳过空白</button>
+      <button class="sv-more-btn" onclick="seekDelta(-5)">⏪ -5s</button>
+      <button class="sv-more-btn" onclick="seekDelta(5)">⏩ +5s</button>
+      <button class="sv-more-btn" onclick="replayCurrentSentence()">🔂 重播本句</button>
+      <button class="sv-more-btn" onclick="enterPracticeHere()">🎤 逐句跟读</button>
+      <button class="sv-more-btn auto-shadow-toggle-btn" id="sv-auto-shadow-btn" onclick="toggleAutoShadow()">🤖 自动跟读</button>
+      <button class="sv-more-btn active karaoke-toggle-btn" id="sv-karaoke-btn" onclick="toggleKaraoke()">🎯 逐词高亮</button>
+      <button class="sv-more-btn skip-gap-toggle-btn" id="sv-skip-gap-btn" onclick="toggleSkipGap()">⏩ 跳过空白</button>
     </div>
   </div>
 
@@ -2017,7 +2041,7 @@ function initWaveSurfer(file, pre) {
 /* 简洁模式底部栏的播放/暂停图标——独立于桌面 #play-btn 的文字按钮，两边状态同步 */
 function svSetPlayIcon(playing) {
   const btn = document.getElementById('sv-play-btn');
-  if (btn) btn.textContent = playing ? '⏸' : '▶';
+  if (btn) btn.classList.toggle('is-playing', playing);
 }
 
 function enableRegionDrag() {
