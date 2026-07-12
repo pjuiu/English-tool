@@ -922,10 +922,11 @@
 
 <header>
   <div>
-    <h1 title="Shadow Reading Lab · v20260712e">🎙 影子跟读实验室</h1>
+    <h1 title="Shadow Reading Lab · v20260712f">🎙 影子跟读实验室</h1>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
+    <button class="btn-sm" onclick="toggleApiPanel()">API 设置</button>
     <div class="hdr-more-wrap">
       <button class="btn-sm" onclick="toggleHeaderMoreMenu()">⋯</button>
       <div id="hdr-more-menu" class="hdr-more-menu">
@@ -934,7 +935,6 @@
       </div>
     </div>
     <input type="file" id="restore-input" accept=".json" style="display:none" onchange="restoreShadowData(event)" />
-    <button class="btn-sm" onclick="toggleApiPanel()">API 设置</button>
   </div>
 </header>
 
@@ -1103,7 +1103,7 @@
       <button class="sv-tab" data-tab="dictation" onclick="switchSimpleTab('dictation')">听写</button>
     </div>
     <div id="sv-sub-tab" class="sv-tab-content">
-      <div style="display:flex;gap:6px;margin-bottom:6px;">
+      <div style="display:flex;gap:6px;margin-bottom:6px;position:sticky;top:0;z-index:5;background:var(--bg);padding:2px 0 6px;">
         <input type="text" id="sv-sub-search-input" placeholder="🔍 搜索字幕…" oninput="setSubSearch(this.value)"
           style="flex:1;min-width:0;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--text);" />
         <button class="btn" id="sv-fav-filter-btn" style="padding:3px 10px;font-size:12px;flex-shrink:0;" onclick="toggleFavOnly()">⭐ 只看收藏</button>
@@ -3610,6 +3610,13 @@ function switchSimpleTab(tab) {
   if (tab === 'practice') {
     if (!practice) enterPracticeHere();   // 第一次点进"跟读"标签页，还没有练习会话就直接开始
     else placePracticePanel();
+    // enterPracticeHere() 在没有素材/字幕/片段时只弹一个 toast 就返回，标签页本身留空白——
+    // 跟"词卡"/"字幕"/"听写"三个标签页遇到同样情况都有引导文案不一致，看起来像坏了
+    if (!practice) {
+      const tabEl = document.getElementById('sv-practice-tab');
+      tabEl.innerHTML = `<div class="sv-placeholder">${!currentFile ? '还没有加载素材，先在上方选择音频/视频文件' :
+        '还没有字幕，先在「字幕」标签页转写或导入（或用「静音切分」按停顿切段）后再来跟读'}</div>`;
+    }
   }
   if (tab === 'cards' && !svCardsRendered) renderSvCardsTab();   // 词卡列表只需要生成一次，切标签页不用重算
   if (tab === 'dictation') renderSvDictationTab();
@@ -4293,7 +4300,10 @@ function placePracticePanel() {
   if (document.body.classList.contains('simple-mode')) {
     // 简洁模式下跟读面板固定显示在"跟读"标签页容器里，不跟着字幕行内嵌
     // （内嵌逻辑是给旧的工具箱式字幕列表设计的，简洁模式是独立的标签页布局）
-    document.getElementById('sv-practice-tab').appendChild(panel);
+    const tabEl = document.getElementById('sv-practice-tab');
+    const stalePlaceholder = tabEl.querySelector('.sv-placeholder');
+    if (stalePlaceholder) stalePlaceholder.remove();   // 清掉"还没有字幕"之类的引导文案，避免跟真正的练习面板同时显示
+    tabEl.appendChild(panel);
     return;
   }
   if (practice && practice.idx >= 0) {
