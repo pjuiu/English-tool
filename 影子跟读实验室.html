@@ -331,7 +331,6 @@
   body.simple-mode #simple-view { display: block; }
   body.simple-mode #main-right,
   body.simple-mode #subtitle-list-wrap,
-  body.simple-mode #diag-panel,
   body.simple-mode #url-video-toggle { display: none !important; }
   /* 已经加载了素材之后，链接输入区/拖拽区就没必要占地方了——只有还没加载任何东西时才需要它们 */
   body.simple-mode.has-file #url-row,
@@ -802,16 +801,6 @@
   #url-note { margin: 6px 16px 0; font-size: 11.5px; color: var(--text-muted); }
   #url-platform-badge { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
   #url-status-line { margin: 6px 16px 0; font-size: 12.5px; color: var(--accent2); min-height: 16px; }
-  #diag-panel { margin: 8px 16px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
-  #diag-head { padding: 6px 10px; font-size: 11.5px; color: var(--text-muted); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
-  #diag-toggle-ico { margin-left: auto; }
-  #diag-log {
-    margin: 0; padding: 8px 10px; font-size: 11px; line-height: 1.6; max-height: 220px; overflow-y: auto;
-    white-space: pre-wrap; word-break: break-all; background: #1e1c1a; color: #c8e0c8;
-    font-family: ui-monospace, Menlo, Consolas, monospace; display: none; border-top: 1px solid var(--border);
-  }
-  #diag-panel.open #diag-log { display: block; }
-  #diag-panel.open #diag-toggle-ico { transform: rotate(180deg); }
   #confirm-bar {
     position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
     background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
@@ -923,7 +912,7 @@
 
 <header>
   <div>
-    <h1 title="Shadow Reading Lab · v20260712h">🎙 影子跟读实验室</h1>
+    <h1 title="Shadow Reading Lab · v20260712i">🎙 影子跟读实验室</h1>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -975,10 +964,6 @@
 </label>
 <div id="url-status-line"></div>
 <div id="url-note">粘贴链接后这里会按识别到的平台显示对应的准备步骤。</div>
-<div id="diag-panel">
-  <div id="diag-head" onclick="toggleDiagPanel()">🔧 诊断信息（遇到问题时把这里的内容发给我）<span id="diag-toggle-ico">▾</span></div>
-  <pre id="diag-log"></pre>
-</div>
 
 <!-- Upload Zone -->
 <div id="upload-zone" onclick="document.getElementById('file-input').click()"
@@ -1160,7 +1145,7 @@
       <button class="btn" id="fav-export-btn" style="padding:2px 8px;font-size:11px;float:right;margin-right:4px;display:none;" onclick="exportFavs()">⬇ 导出</button>
     </h3>
     <input type="text" id="sub-search-input" placeholder="🔍 搜索字幕…" oninput="setSubSearch(this.value)"
-      style="width:100%;box-sizing:border-box;padding:6px 10px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--text);" />
+      style="position:sticky;top:0;z-index:5;width:100%;box-sizing:border-box;padding:6px 10px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--text);" />
     <div id="subtitle-list"></div>
   </div>
 
