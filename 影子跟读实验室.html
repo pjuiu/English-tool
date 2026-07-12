@@ -357,7 +357,12 @@
     background: var(--surface); border-top: 1px solid var(--border);
     box-shadow: 0 -2px 10px rgba(74,69,64,0.12);
     padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
-    overflow-x: hidden;   /* 保险：万一某个子元素撑宽了，也不会连累整个页面出现横向滚动条 */
+    /* 之前这里加过 overflow-x:hidden 当保险，结果按 CSS 规范：只设一个轴的 overflow，
+       另一个轴会被强制从 visible 变成 auto——倍速/更多两个弹出面板是用 bottom:100%
+       撑到 #sv-controls 自己的盒子外面（往上展开），overflow-y 一旦不是 visible 就会被裁掉，
+       表现出来就是"点了没反应"（其实类名/逻辑都对，只是整个面板被父元素裁没了看不见）。
+       横向溢出的保险改放到 #sv-controls-row 自己身上（它没有需要探出边界显示的子元素，
+       用 overflow:hidden 不会有这个副作用） */
   }
   #sv-progress-bar {
     height: 4px; background: var(--border); border-radius: 2px; cursor: pointer;
@@ -865,7 +870,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260712b</span>
+    <span>Shadow Reading Lab · v20260712c</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
