@@ -923,7 +923,7 @@
 
 <header>
   <div>
-    <h1 title="Shadow Reading Lab · v20260712g">🎙 影子跟读实验室</h1>
+    <h1 title="Shadow Reading Lab · v20260712h">🎙 影子跟读实验室</h1>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -3616,8 +3616,23 @@ function switchSimpleTab(tab) {
   // 还平白多出一个要单独处理"长句子溢出"的地方。只在"字幕"标签页显示画面内嵌字幕
   document.getElementById('video-caption').style.display = (tab === 'sub') ? '' : 'none';
   if (tab === 'practice') {
+    // 跟读会话（practice）一旦开始就会一直停在那一句，不会跟着后续播放自动挪动——
+    // 如果用户中途切到"字幕"标签页点了别的句子播放，或者直接拖动了进度条，
+    // 再切回"跟读"标签页时如果还是直接复用旧的 practice，就会一直显示最早进入时那句，
+    // 明明音频/视频已经播到别处了，看起来像"跟读进度不跟着播放走，一直从头开始"。
+    // 这里每次切进这个标签页都用当前真实播放位置核对一下，跟丢了就重新定位过去
+    let resynced = false;
+    if (practice && ws && duration) {
+      if (practice.idx >= 0 && subtitles.length > 0) {
+        const curIdx = subIndexAt(ws.getCurrentTime());
+        if (curIdx >= 0 && curIdx !== practice.idx) { startPractice(curIdx); resynced = true; }
+      } else if (practice.cutIdx !== undefined && cutSegments.length > 0) {
+        const curIdx = cutIndexAt(ws.getCurrentTime());
+        if (curIdx >= 0 && curIdx !== practice.cutIdx) { startPracticeSeg(curIdx); resynced = true; }
+      }
+    }
     if (!practice) enterPracticeHere();   // 第一次点进"跟读"标签页，还没有练习会话就直接开始
-    else placePracticePanel();
+    else if (!resynced) placePracticePanel();
     // enterPracticeHere() 在没有素材/字幕/片段时只弹一个 toast 就返回，标签页本身留空白——
     // 跟"词卡"/"字幕"/"听写"三个标签页遇到同样情况都有引导文案不一致，看起来像坏了
     if (!practice) {
