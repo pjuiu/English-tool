@@ -859,9 +859,32 @@
   @media (max-width: 600px) {
     header h1 { font-size: 16px; }
     #main, #upload-zone, #api-panel { margin: 10px 10px 0; }
-    .ctrl-group { gap: 6px; }
-    .btn { padding: 6px 10px; font-size: 12px; }
+    .ctrl-group { gap: 8px; }
+    /* 手机上需要的是更大的触控热区，不是更小——之前这里反而把按钮缩小了 */
+    .btn { padding: 9px 14px; font-size: 13px; }
     #current-subtitle { font-size: 14px; }
+
+    /* 完整模式手机端优化：#main-right 那一堆面板（字幕生成/字幕与播放设置/选段剪切等）
+       完全没有手机端样式，几种反复出现的控件组合模式统一在这里处理，不用逐个面板改 */
+
+    /* "标签 + 一串按钮/下拉框"的行：标签独占一行，不再跟后面的控件挤在同一行抢空间，
+       下面的控件按自己的宽度自然换行 */
+    .ctrl-label { flex-basis: 100%; }
+
+    /* 下拉框：放开固定小宽度，跟别的控件同处一行时能正常收缩，不会被撑爆出屏幕——
+       "tiny 模型（40MB·快）"这个下拉框之前被直接截断出屏幕就是这个原因 */
+    .mini-select { min-width: 0; flex: 1 1 auto; padding: 9px 10px; font-size: 13px; }
+
+    /* 粘贴链接输入框：窄屏下独占一行，不跟"▶ 开始"按钮抢地方，
+       避免占位符文字被截断、按钮被挤到看不见 */
+    #media-url { flex: 1 1 100%; min-width: 0; }
+
+    /* 播放条：按钮改成弹性网格自动排布（2-3 个一行），不再是"一个按钮占一整行"的竖直长条 */
+    #controls .btn { flex: 1 1 auto; min-width: 84px; text-align: center; }
+
+    /* 触控热区统一放大到接近手机端建议的 44px 可点范围，桌面端外观不受影响 */
+    .fav-btn { padding: 10px 12px; font-size: 15px; }
+    .sub-more-btn { padding: 10px 12px; font-size: 17px; }
   }
 </style>
 </head>
@@ -870,7 +893,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260712c</span>
+    <span>Shadow Reading Lab · v20260712d</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
