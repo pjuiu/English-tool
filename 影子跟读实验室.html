@@ -330,23 +330,65 @@
   body.simple-mode #current-subtitle { display: none !important; }   /* 跟"字幕"标签页里高亮的当前句重复，简洁模式下没必要重复显示；JS 里有内联 style.display 会覆盖没加 !important 的规则 */
   /* 手机屏幕高度有限，画面固定占用太多的话下面的字幕/词卡内容区就所剩无几了 */
   body.simple-mode #video-el { max-height: 220px; }
-  /* 播放/上一句/下一句这排操作按钮挪到最下面——原来夹在"画面"和"字幕/词卡"标签页中间，
-     手指要来回跨过整个内容区才能点到，参考图里那类应用都是把操作条放在最底部。
-     用 flex order 视觉重排而不是挪动 DOM 位置，完整模式（没有 body.simple-mode 时）的布局完全不受影响 */
+  /* 简洁模式下 #controls（桌面/完整模式的播放条）整个不用了，换成下面
+     position:fixed 贴底的 #sv-controls——参考图里那类跟读 App 都是操作条常驻屏幕最底部，
+     不需要滚动过整个字幕/词卡内容区才能找到播放/上一句/下一句 */
   body.simple-mode #main-left { display: flex; flex-direction: column; }
   body.simple-mode #video-wrap { order: 1; }
   body.simple-mode #practice-home,
   body.simple-mode #practice-panel,
   body.simple-mode #current-subtitle { order: 2; }
   body.simple-mode #simple-view { order: 3; }
-  body.simple-mode #controls { order: 4; margin-top: 8px; }
+  body.simple-mode #controls { display: none; }
+  /* 底部固定操作栏留出的空间，不然最后一条内容会被常驻的操作栏盖住 */
+  body.simple-mode { padding-bottom: 84px; }
   #sv-tabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--border); }
   .sv-tab {
     flex: 1; padding: 10px 4px; text-align: center; font-size: 14px; color: var(--text-muted);
     background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer;
   }
   .sv-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
-  .sv-tab-content { max-height: 60vh; overflow-y: auto; }
+  .sv-tab-content { max-height: 50vh; overflow-y: auto; }
+
+  /* ── 简洁模式底部固定操作栏 ── */
+  #sv-controls { display: none; }
+  body.simple-mode #sv-controls {
+    display: block; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    background: var(--surface); border-top: 1px solid var(--border);
+    box-shadow: 0 -2px 10px rgba(74,69,64,0.12);
+    padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+  }
+  #sv-progress-bar {
+    height: 4px; background: var(--border); border-radius: 2px; cursor: pointer;
+    touch-action: none; margin-bottom: 8px;
+  }
+  #sv-progress-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; pointer-events: none; }
+  #sv-controls-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+  .sv-ctrl-icon {
+    background: none; border: none; color: var(--text); cursor: pointer;
+    font-size: 20px; line-height: 1; padding: 6px; border-radius: 8px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1;
+    transition: background .15s;
+  }
+  .sv-ctrl-icon:hover, .sv-ctrl-icon.active { background: var(--accent-light); }
+  .sv-ctrl-icon #sv-speed-label { font-size: 14px; font-weight: 600; }
+  .sv-ctrl-caption { font-size: 9px; color: var(--text-muted); }
+  .sv-ctrl-play {
+    flex: 0 0 auto; width: 52px; height: 52px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 22px;
+    box-shadow: 0 2px 8px rgba(74,69,64,0.25);
+  }
+  .sv-ctrl-play:hover { background: var(--accent-dark); }
+  /* 倍速/更多 弹出面板：贴在操作栏上方展开，不挤占常驻图标行的空间 */
+  .sv-popover {
+    display: none; position: absolute; left: 10px; right: 10px; bottom: 100%;
+    margin-bottom: 8px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: 0 2px 10px rgba(74,69,64,0.15); padding: 10px;
+  }
+  .sv-popover.open { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  #sv-speed-picker.open { display: flex; }
+  #sv-controls .speed-btn { padding: 8px 14px; font-size: 14px; }
+  .sv-more-panel .btn { font-size: 13px; }
   .sv-placeholder { text-align: center; padding: 40px 10px; color: var(--text-muted); font-size: 13px; }
   .sv-card {
     background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
@@ -797,7 +839,7 @@
 <header>
   <div>
     <h1>🎙 影子跟读实验室</h1>
-    <span>Shadow Reading Lab · v20260711j</span>
+    <span>Shadow Reading Lab · v20260712a</span>
   </div>
   <div class="header-right">
     <button class="btn-sm" id="simple-mode-toggle" onclick="toggleSimpleMode()">📱 简洁模式</button>
@@ -942,7 +984,7 @@
       <button class="btn sv-hide" onclick="replayCurrentSentence()">🔂 重播本句</button>
       <button class="btn" onclick="nextSentence()">⏭ 下一句</button>
       <button class="btn sv-hide" onclick="enterPracticeHere()" title="进入逐句跟读练习（听→录→评分→下一句）">🎤 逐句跟读</button>
-      <button class="btn sv-hide" id="auto-shadow-btn" onclick="toggleAutoShadow()" title="全自动影子跟读：播一句→自动录你跟读→自动下一句，全程免手动">🤖 自动跟读</button>
+      <button class="btn sv-hide auto-shadow-toggle-btn" id="auto-shadow-btn" onclick="toggleAutoShadow()" title="全自动影子跟读：播一句→自动录你跟读→自动下一句，全程免手动">🤖 自动跟读</button>
       <span id="auto-status" class="sv-hide" style="font-size:12px;color:var(--text-muted);"></span>
     </div>
     <div class="ctrl-group">
@@ -983,6 +1025,43 @@
       <div class="sv-placeholder">🚧 词卡功能即将推出</div>
     </div>
     <div id="sv-dictation-tab" class="sv-tab-content" style="display:none;"></div>
+  </div>
+
+  <!-- 简洁模式底部固定操作栏：播放/上一句/下一句等核心操作常驻屏幕最底部（参考小红书同类跟读 App，
+       图标为主、中间播放按钮明显更大），不依赖文档流位置，position:fixed 直接贴底 -->
+  <div id="sv-controls">
+    <div id="sv-progress-bar" onclick="seekByClick(event)"><div id="sv-progress-fill"></div></div>
+    <div id="sv-controls-row">
+      <button class="sv-ctrl-icon" onclick="svToggleSpeedPicker()" title="倍速">
+        <span id="sv-speed-label">1×</span>
+      </button>
+      <button class="sv-ctrl-icon blind-toggle-btn" id="sv-blind-btn" onclick="toggleBlind()" title="盲听：先不看字幕">👁</button>
+      <button class="sv-ctrl-icon" onclick="prevSentence()" title="上一句">
+        <span class="sv-ctrl-glyph">⏮</span><span class="sv-ctrl-caption">上一句</span>
+      </button>
+      <button class="sv-ctrl-icon sv-ctrl-play" id="sv-play-btn" onclick="togglePlay()" title="播放/暂停">▶</button>
+      <button class="sv-ctrl-icon" onclick="nextSentence()" title="下一句">
+        <span class="sv-ctrl-glyph">⏭</span><span class="sv-ctrl-caption">下一句</span>
+      </button>
+      <button class="sv-ctrl-icon" id="sv-loop-btn" onclick="svToggleLoopMode()" title="单句循环">🔁</button>
+      <button class="sv-ctrl-icon" onclick="svToggleMorePanel()" title="更多">⋯</button>
+    </div>
+    <div id="sv-speed-picker" class="sv-popover">
+      <button class="speed-btn" data-speed="0.5" onclick="setSpeed(0.5)">0.5×</button>
+      <button class="speed-btn" data-speed="0.75" onclick="setSpeed(0.75)">0.75×</button>
+      <button class="speed-btn active" data-speed="1" onclick="setSpeed(1)">1×</button>
+      <button class="speed-btn" data-speed="1.25" onclick="setSpeed(1.25)">1.25×</button>
+      <button class="speed-btn" data-speed="1.5" onclick="setSpeed(1.5)">1.5×</button>
+    </div>
+    <div id="sv-more-panel" class="sv-popover sv-more-panel">
+      <button class="btn" onclick="seekDelta(-5)">⏪ -5s</button>
+      <button class="btn" onclick="seekDelta(5)">⏩ +5s</button>
+      <button class="btn" onclick="replayCurrentSentence()">🔂 重播本句</button>
+      <button class="btn" onclick="enterPracticeHere()">🎤 逐句跟读</button>
+      <button class="btn auto-shadow-toggle-btn" id="sv-auto-shadow-btn" onclick="toggleAutoShadow()">🤖 自动跟读</button>
+      <button class="btn active karaoke-toggle-btn" id="sv-karaoke-btn" onclick="toggleKaraoke()">🎯 逐词高亮</button>
+      <button class="btn skip-gap-toggle-btn" id="sv-skip-gap-btn" onclick="toggleSkipGap()">⏩ 跳过空白</button>
+    </div>
   </div>
 
   <!-- Subtitle List（主操作区：视频正下方，全宽） -->
@@ -1045,9 +1124,9 @@
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
       <span class="ctrl-label">训练</span>
-      <button class="btn" id="blind-btn" onclick="toggleBlind()" title="盲听训练：字幕全部模糊，点击某句可临时显示">🙈 盲听</button>
-      <button class="btn active" id="karaoke-btn" onclick="toggleKaraoke()" title="播放到哪个词，哪个词变橙色">🎯 逐词高亮</button>
-      <button class="btn" id="skip-gap-btn" onclick="toggleSkipGap()" title="自动跳过句子之间的停顿间隙">⏩ 跳过空白</button>
+      <button class="btn blind-toggle-btn" id="blind-btn" onclick="toggleBlind()" title="盲听训练：字幕全部模糊，点击某句可临时显示">🙈 盲听</button>
+      <button class="btn active karaoke-toggle-btn" id="karaoke-btn" onclick="toggleKaraoke()" title="播放到哪个词，哪个词变橙色">🎯 逐词高亮</button>
+      <button class="btn skip-gap-toggle-btn" id="skip-gap-btn" onclick="toggleSkipGap()" title="自动跳过句子之间的停顿间隙">⏩ 跳过空白</button>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
       <span class="ctrl-label">播放模式</span>
@@ -1311,13 +1390,13 @@ function findCapUnitIdx(t) {
 function toggleKaraoke() {
   karaokeEnabled = !karaokeEnabled;
   localStorage.setItem('shadow_karaoke', karaokeEnabled ? '1' : '0');
-  document.getElementById('karaoke-btn').classList.toggle('active', karaokeEnabled);
+  document.querySelectorAll('.karaoke-toggle-btn').forEach(b => b.classList.toggle('active', karaokeEnabled));
   if (!karaokeEnabled) clearKaraoke();
   else ensureKaraokeLoop();   // 播放中重新开启时立即恢复
 }
 function toggleSkipGap() {
   skipGaps = !skipGaps;
-  document.getElementById('skip-gap-btn').classList.toggle('active', skipGaps);
+  document.querySelectorAll('.skip-gap-toggle-btn').forEach(b => b.classList.toggle('active', skipGaps));
   if (skipGaps && subtitles.length === 0 && cutSegments.length === 0) {
     showToast('已开启，但需要字幕或剪切片段的时间数据才生效：先「🆓 本地转写」「导入 SRT」或「静音切分」', 5000);
   } else {
@@ -1917,6 +1996,7 @@ function initWaveSurfer(file, pre) {
 
   ws.on('finish', () => {
     document.getElementById('play-btn').textContent = '▶ 播放';
+    svSetPlayIcon(false);
     if (isLooping && currentRegion) {
       seekSec(currentRegion.start);
       safePlay();
@@ -1925,12 +2005,19 @@ function initWaveSurfer(file, pre) {
 
   ws.on('play', () => {
     document.getElementById('play-btn').textContent = '⏸ 暂停';
+    svSetPlayIcon(true);
     if (!karaokeRaf && karaokeEnabled) karaokeRaf = requestAnimationFrame(karaokeTick);
   });
   ws.on('pause', () => {
     document.getElementById('play-btn').textContent = '▶ 播放';
+    svSetPlayIcon(false);
     if (recAudio.paused) markPlayingBtn(null);   // 原声播完且没有接续录音时，清除按钮高亮
   });
+}
+/* 简洁模式底部栏的播放/暂停图标——独立于桌面 #play-btn 的文字按钮，两边状态同步 */
+function svSetPlayIcon(playing) {
+  const btn = document.getElementById('sv-play-btn');
+  if (btn) btn.textContent = playing ? '⏸' : '▶';
 }
 
 function enableRegionDrag() {
@@ -2078,22 +2165,26 @@ function seekByClick(e) {
   seekRatio(ratio);
 }
 
-/* 进度条支持按住拖动 */
-(function () {
-  const bar = document.getElementById('progress-bar');
+/* 进度条支持按住拖动——抽成通用函数，桌面 #progress-bar 和简洁模式底部栏的 #sv-progress-bar
+   各自独立绑定一份，两条进度条互不影响，拖动哪条就按哪条的宽度换算 */
+function bindDraggableProgressBar(barId, fillId) {
+  const bar = document.getElementById(barId);
+  if (!bar) return;
   let dragging = false;
   const seekAt = (clientX) => {
     if (!ws || !duration) return;
     const rect = bar.getBoundingClientRect();
     const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
     seekRatio(ratio);
-    document.getElementById('progress-fill').style.width = (ratio * 100) + '%';
+    document.getElementById(fillId).style.width = (ratio * 100) + '%';
   };
   bar.addEventListener('pointerdown', e => { dragging = true; bar.setPointerCapture(e.pointerId); seekAt(e.clientX); });
   bar.addEventListener('pointermove', e => { if (dragging) seekAt(e.clientX); });
   bar.addEventListener('pointerup', () => { dragging = false; });
   bar.addEventListener('pointercancel', () => { dragging = false; });
-})();
+}
+bindDraggableProgressBar('progress-bar', 'progress-fill');
+bindDraggableProgressBar('sv-progress-bar', 'sv-progress-fill');
 
 /* 录音回放的按钮状态：正在播放的按钮高亮，一眼可见点击是否生效 */
 let playingBtn = null;
@@ -2111,6 +2202,11 @@ function setSpeed(s) {
   document.querySelectorAll('.speed-btn').forEach(b => {
     b.classList.toggle('active', parseFloat(b.dataset.speed) === s);
   });
+  // 简洁模式底部栏的倍速角标 + 选完自动收起弹出的选择面板（桌面模式没有这两个元素，安全空跑）
+  const svLabel = document.getElementById('sv-speed-label');
+  if (svLabel) svLabel.textContent = s + '×';
+  const picker = document.getElementById('sv-speed-picker');
+  if (picker) picker.classList.remove('open');
 }
 
 function toggleLoop() {
@@ -2123,13 +2219,40 @@ function toggleLoop() {
   }
 }
 
+/* 简洁模式底部栏：倍速/更多 两个弹出面板互斥（开一个先收起另一个），点外面也收起 */
+function svToggleSpeedPicker() {
+  document.getElementById('sv-more-panel').classList.remove('open');
+  document.getElementById('sv-speed-picker').classList.toggle('open');
+}
+function svToggleMorePanel() {
+  document.getElementById('sv-speed-picker').classList.remove('open');
+  document.getElementById('sv-more-panel').classList.toggle('open');
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('#sv-controls')) return;
+  document.getElementById('sv-speed-picker') && document.getElementById('sv-speed-picker').classList.remove('open');
+  document.getElementById('sv-more-panel') && document.getElementById('sv-more-panel').classList.remove('open');
+});
+/* 单句循环：复用桌面的播放模式下拉（continuous/loop），图标按钮只是换一套触发方式，
+   两边状态互相同步——切回完整模式时下拉框的显示值也是对的 */
+function svToggleLoopMode() {
+  const next = loopSentenceMode ? 'continuous' : 'loop';
+  const sel = document.getElementById('play-mode-sel');
+  if (sel) sel.value = next;
+  setPlayMode(next);
+  document.getElementById('sv-loop-btn').classList.toggle('active', loopSentenceMode);
+}
+
 function updateTimeDisplay(t) {
   document.getElementById('time-display').textContent = `${fmtTime(t)} / ${fmtTime(duration)}`;
 }
 
 function updateProgressBar(t) {
   if (!duration) return;
-  document.getElementById('progress-fill').style.width = (t / duration * 100) + '%';
+  const pct = (t / duration * 100) + '%';
+  document.getElementById('progress-fill').style.width = pct;
+  const svFill = document.getElementById('sv-progress-fill');
+  if (svFill) svFill.style.width = pct;
 }
 
 function fmtTime(s) {
@@ -2858,7 +2981,7 @@ if (localStorage.getItem('shadow_sub_mask') === '1') {
 function toggleBlind() {
   blindMode = !blindMode;
   document.body.classList.toggle('blind', blindMode);
-  document.getElementById('blind-btn').classList.toggle('active', blindMode);
+  document.querySelectorAll('.blind-toggle-btn').forEach(b => b.classList.toggle('active', blindMode));
   document.querySelectorAll('.sub-text.revealed, #current-subtitle.revealed').forEach(el => el.classList.remove('revealed'));
   showToast(blindMode ? '盲听模式：先不看字幕听几遍，点击某句可临时显示' : '盲听模式已关闭');
 }
@@ -3881,7 +4004,7 @@ async function toggleAutoShadow() {
     autoStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) { showToast('无法访问麦克风：' + e.message); return; }
   autoShadowOn = true;
-  document.getElementById('auto-shadow-btn').classList.add('active');
+  document.querySelectorAll('.auto-shadow-toggle-btn').forEach(b => b.classList.add('active'));
   autoIdx = Math.max(subIndexAt(ws.getCurrentTime()), 0);
   showToast('自动跟读开始：每句播完自动录你的跟读，再按一次停止');
   autoStep();
@@ -3924,7 +4047,7 @@ function stopAutoShadow(msg) {
   if (autoRecorder && autoRecorder.state === 'recording') autoRecorder.stop();
   if (autoStream) { autoStream.getTracks().forEach(t => t.stop()); autoStream = null; }
   abState = null;
-  document.getElementById('auto-shadow-btn').classList.remove('active');
+  document.querySelectorAll('.auto-shadow-toggle-btn').forEach(b => b.classList.remove('active'));
   setAutoStatus('');
   if (ws && ws.isPlaying()) ws.pause();
   if (msg) showToast(msg);
@@ -5451,6 +5574,7 @@ async function resetAll() {
   lastActiveSub = null;
   document.getElementById('play-mode-sel').value = 'continuous';
   document.getElementById('pause-resume-sel').style.display = 'none';
+  document.getElementById('sv-loop-btn').classList.remove('active');
   cutSegments = [];
   activeCutLoop = -1;
   cutMarkA = cutMarkB = null;
